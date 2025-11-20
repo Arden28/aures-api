@@ -7,6 +7,8 @@ use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\FloorPlanController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\RestaurantController;
+use App\Http\Controllers\Api\StaffController;
 use App\Http\Controllers\Api\TableController;
 use App\Http\Controllers\Api\TransactionController;
 use Illuminate\Http\Request;
@@ -224,6 +226,42 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('transactions', TransactionController::class)
             ->only(['index', 'store', 'show'])
             ->names('transactions');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Staff Management
+        |--------------------------------------------------------------------------
+        |
+        | Staff endpoints manage all restaurant personnel:
+        | - Each staff member has name, email, role, and restaurant assignment
+        | - Roles define permissions (owner, manager, waiter, kitchen, cashier)
+        | - Email uniqueness and access are scoped to the restaurant
+        |
+        */
+
+        Route::apiResource('staff', StaffController::class)
+            ->parameter('staff', 'staff') // binding to User model
+                ->names('staff');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Restaurant Settings
+        |--------------------------------------------------------------------------
+        |
+        | Restaurant settings define the core configuration of the restaurant such as:
+        | - General information (name, logo, contact details)
+        | - Operational preferences (currency, tax rates, service charges)
+        | - Display and menu settings
+        |
+        | All settings are scoped to the authenticated user's restaurant.
+        |
+        */
+
+        Route::get('restaurant', [RestaurantController::class, 'show'])
+            ->name('restaurant.show');
+
+        Route::put('restaurant', [RestaurantController::class, 'update'])
+            ->name('restaurant.update');
 
         // If later you want to support reversing / refunding transactions,
         // you can add PATCH/DELETE endpoints here.

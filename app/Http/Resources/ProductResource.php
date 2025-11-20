@@ -16,6 +16,7 @@ class ProductResource extends JsonResource
     {
         return [
             'id'          => $this->id,
+            'category_id' => $this->category_id,
             'restaurant'     => $this->when($this->restaurant, function () {
                 return [
                     'id'   => $this->restaurant->id,
