@@ -34,7 +34,7 @@ class DashboardController extends Controller
      *  - OWNER/MANAGER: global restaurant overview + staff performance
      *  - WAITER: only their own orders
      *  - CASHIER: only orders they processed payments for
-     *  - KITCHEN: focus on active orders (PENDING/IN_PROGRESS/READY)
+     *  - KITCHEN: focus on active orders (PENDING/PREPARING/READY)
      *
      * CLIENT role is not allowed.
      */
@@ -89,7 +89,7 @@ class DashboardController extends Controller
         $activeOrders = $orders->filter(function (Order $o) {
             return in_array($o->status, [
                 OrderStatus::PENDING,
-                OrderStatus::IN_PROGRESS,
+                OrderStatus::PREPARING,
                 OrderStatus::READY,
             ], true);
         })->count();
@@ -217,7 +217,7 @@ class DashboardController extends Controller
             case UserRole::KITCHEN:
                 $query->whereIn('status', [
                     OrderStatus::PENDING,
-                    OrderStatus::IN_PROGRESS,
+                    OrderStatus::PREPARING,
                     OrderStatus::READY,
                 ]);
                 break;
@@ -325,7 +325,7 @@ class DashboardController extends Controller
     {
         $init = [
             'pending'     => 0,
-            'in_progress' => 0,
+            'preparing' => 0,
             'ready'       => 0,
             'served'      => 0,
             'completed'   => 0,
@@ -499,7 +499,7 @@ class DashboardController extends Controller
 
                 if (in_array($order->status, [
                     OrderStatus::PENDING,
-                    OrderStatus::IN_PROGRESS,
+                    OrderStatus::PREPARING,
                     OrderStatus::READY,
                 ], true)) {
                     $waiterStats[$wid]['active_orders']++;

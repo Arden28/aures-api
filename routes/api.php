@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ClientController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\FloorPlanController;
 use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\PortalController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\RestaurantController;
 use App\Http\Controllers\Api\StaffController;
@@ -69,6 +70,12 @@ Route::prefix('v1')->group(function () {
     // Example:
     // Route::get('public/menu/{restaurant}', [PublicMenuController::class, 'show']);
     // Route::get('public/orders/{token}', [PublicOrderController::class, 'track']);
+    // Public Portal Routes
+    Route::prefix('portal')->group(function () {
+        Route::get('/{code}', [PortalController::class, 'index']);
+        Route::post('/{code}/order', [PortalController::class, 'store']);
+        Route::put('/{code}/order/{order}', [PortalController::class, 'update']);
+    });
 
     /*
     |--------------------------------------------------------------------------
@@ -132,9 +139,10 @@ Route::prefix('v1')->group(function () {
         | - Can be filtered by category or availability
         |
         */
-
+        Route::post('products/{product}/image', [ProductController::class, 'uploadImage']);
         Route::apiResource('products', ProductController::class)
             ->names('products');
+
 
         /*
         |--------------------------------------------------------------------------
@@ -192,7 +200,7 @@ Route::prefix('v1')->group(function () {
         | - Linked to a table and optionally a client
         | - Have order items
         | - Have a status state machine:
-        |   PENDING → IN_PROGRESS → READY → SERVED → COMPLETED / CANCELLED
+        |   PENDING → PREPARING → READY → SERVED → COMPLETED / CANCELLED
         |
         | Order Items:
         | - Each item refers to a Product, quantity, and status:

@@ -216,8 +216,8 @@ class OrderController extends Controller
     protected function canTransitionOrder(OrderStatus $from, OrderStatus $to): bool
     {
         $allowedTransitions = [
-            OrderStatus::PENDING->value      => [OrderStatus::IN_PROGRESS, OrderStatus::CANCELLED],
-            OrderStatus::IN_PROGRESS->value  => [OrderStatus::READY, OrderStatus::CANCELLED],
+            OrderStatus::PENDING->value      => [OrderStatus::PREPARING, OrderStatus::CANCELLED],
+            OrderStatus::PREPARING->value  => [OrderStatus::READY, OrderStatus::CANCELLED],
             OrderStatus::READY->value        => [OrderStatus::SERVED],
             OrderStatus::SERVED->value       => [OrderStatus::COMPLETED],
         ];

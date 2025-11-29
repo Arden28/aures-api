@@ -10,6 +10,7 @@ use App\Models\Category;
 use App\Models\Product;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class ProductController extends Controller
 {
@@ -118,6 +119,30 @@ class ProductController extends Controller
         return response()->json([
             'message' => 'Product deleted successfully.',
         ]);
+    }
+    /**
+     * Upload or replace the product image.
+     */
+    public function uploadImage(Request $request, Product $product): ProductResource
+    {
+        $this->authorizeRestaurant($request, $product);
+
+        $request->validate([
+            'image' => ['required', 'image', 'mimes:jpeg,png,jpg,webp', 'max:2048'],
+        ]);
+
+        // 1. Delete old image if it exists
+        if ($product->image_path && Storage::disk('public')->exists($product->image_path)) {
+            Storage::disk('public')->delete($product->image_path);
+        }
+
+        // 2. Store new image
+        $path = $request->file('image')->store('products', 'public');
+
+        // 3. Update database
+        $product->update(['image_path' => $path]);
+
+        return new ProductResource($product);
     }
 
     protected function authorizeRestaurant(Request $request, Product $product): void

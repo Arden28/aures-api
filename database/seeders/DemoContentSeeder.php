@@ -280,13 +280,13 @@ class DemoContentSeeder extends Seeder
                     continue;
                 }
 
-                // Bias: more completed/served/in_progress than cancelled/pending
+                // Bias: more completed/served/PREPARING than cancelled/pending
                 $orderStatusPool = [
                     OrderStatus::COMPLETED,
                     OrderStatus::COMPLETED,
                     OrderStatus::SERVED,
                     OrderStatus::SERVED,
-                    OrderStatus::IN_PROGRESS,
+                    OrderStatus::PREPARING,
                     OrderStatus::READY,
                     OrderStatus::PENDING,
                     OrderStatus::CANCELLED,
@@ -360,7 +360,7 @@ class DemoContentSeeder extends Seeder
                         // item status somewhat aligned with order status
                         $itemStatusPool = match ($oStatus) {
                             OrderStatus::PENDING     => [OrderItemStatus::PENDING],
-                            OrderStatus::IN_PROGRESS => [OrderItemStatus::COOKING, OrderItemStatus::PENDING],
+                            OrderStatus::PREPARING => [OrderItemStatus::COOKING, OrderItemStatus::PENDING],
                             OrderStatus::READY       => [OrderItemStatus::READY, OrderItemStatus::COOKING],
                             OrderStatus::SERVED,
                             OrderStatus::COMPLETED   => [OrderItemStatus::SERVED, OrderItemStatus::READY],
@@ -407,7 +407,7 @@ class DemoContentSeeder extends Seeder
                         } elseif ($paymentStatus === PaymentStatus::REFUNDED) {
                             $paidAmount = 0.0;
                         }
-                    } elseif ($oStatus === OrderStatus::READY || $oStatus === OrderStatus::IN_PROGRESS) {
+                    } elseif ($oStatus === OrderStatus::READY || $oStatus === OrderStatus::PREPARING) {
                         // sometimes partially paid even before completion
                         if ($num(0, 100) < 20) {
                             $paymentStatus = PaymentStatus::PARTIAL;
