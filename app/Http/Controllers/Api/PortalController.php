@@ -135,6 +135,7 @@ class PortalController extends Controller
                     'table_id' => $table->id,
                     'status' => OrderStatus::PENDING,
                     'payment_status' => PaymentStatus::UNPAID,
+                    'source' => 'portal',
                     'total' => 0,
                     'opened_at' => now(),
                 ])->save();
@@ -200,6 +201,8 @@ class PortalController extends Controller
                 'total' => $total,
                 'updated_at' => now()
             ]);
+
+            $table->update(['status' => 'occupied']);
 
             DB::commit();
 
