@@ -29,14 +29,14 @@ class OrderController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user         = $request->user();
-        $restaurantId = $user->restaurant_id;
-
-        $query = Order::with(['items.product', 'table', 'waiter', 'transactions'])
+        $restaurantId = $user->restaurant_id;$query = Order::with(['items.product', 'table', 'waiter', 'transactions'])
             ->where('restaurant_id', $restaurantId)
             ->latest();
 
+        // FIX: Handle array of statuses for KDS filtering
         if ($status = $request->query('status')) {
-            $query->where('status', $status);
+            $statuses = is_array($status) ? $status : explode(',', $status);
+            $query->whereIn('status', $statuses);
         }
 
         $perPage = (int) $request->query('per_page', 20);
@@ -215,16 +215,38 @@ class OrderController extends Controller
 
     protected function canTransitionOrder(OrderStatus $from, OrderStatus $to): bool
     {
+        // 1. Get all statuses to determine order precedence
+        // Assuming your Enum definitions are: pending, preparing, ready, served, completed, cancelled
+
+        // Allow generic forward movement + Cancellation at any stage
         $allowedTransitions = [
-            OrderStatus::PENDING->value      => [OrderStatus::PREPARING, OrderStatus::CANCELLED],
-            OrderStatus::PREPARING->value  => [OrderStatus::READY, OrderStatus::CANCELLED],
-            OrderStatus::READY->value        => [OrderStatus::SERVED],
-            OrderStatus::SERVED->value       => [OrderStatus::COMPLETED],
+            OrderStatus::PENDING->value => [
+                OrderStatus::PREPARING,
+                OrderStatus::READY,     // <--- Added: Allow skipping to Ready
+                OrderStatus::SERVED,    // <--- Added: Allow skipping to Served
+                OrderStatus::CANCELLED
+            ],
+            OrderStatus::PREPARING->value => [
+                OrderStatus::READY,
+                OrderStatus::SERVED,    // <--- Added: Allow skipping to Served
+                OrderStatus::PENDING,   // <--- Added: Allow moving back (oops I started too early)
+                OrderStatus::CANCELLED
+            ],
+            OrderStatus::READY->value => [
+                OrderStatus::SERVED,
+                OrderStatus::PREPARING, // <--- Added: Allow moving back (oops it's not actually ready)
+                OrderStatus::COMPLETED
+            ],
+            OrderStatus::SERVED->value => [
+                OrderStatus::COMPLETED,
+                OrderStatus::READY      // <--- Added: Allow moving back
+            ],
         ];
 
         return in_array(
             $to->value,
-            $allowedTransitions[$from->value] ?? [],
+            // Map the Enums to their values for comparison, or ensure strict comparison works
+            array_map(fn($s) => $s instanceof OrderStatus ? $s->value : $s, $allowedTransitions[$from->value] ?? []),
             true
         );
     }
@@ -263,18 +285,30 @@ class OrderController extends Controller
         ]);
     }
 
-
     protected function canTransitionItem(OrderItemStatus $from, OrderItemStatus $to): bool
     {
         $allowedTransitions = [
-            OrderItemStatus::PENDING->value  => [OrderItemStatus::COOKING, OrderItemStatus::CANCELLED],
-            OrderItemStatus::COOKING->value  => [OrderItemStatus::READY, OrderItemStatus::CANCELLED],
-            OrderItemStatus::READY->value    => [OrderItemStatus::SERVED],
+            OrderItemStatus::PENDING->value => [
+                OrderItemStatus::COOKING,
+                OrderItemStatus::READY,   // <--- Allow skip
+                OrderItemStatus::SERVED,  // <--- Allow skip
+                OrderItemStatus::CANCELLED
+            ],
+            OrderItemStatus::COOKING->value => [
+                OrderItemStatus::READY,
+                OrderItemStatus::SERVED,  // <--- Allow skip
+                OrderItemStatus::PENDING, // <--- Allow back
+                OrderItemStatus::CANCELLED
+            ],
+            OrderItemStatus::READY->value => [
+                OrderItemStatus::SERVED,
+                OrderItemStatus::COOKING  // <--- Allow back
+            ],
         ];
 
         return in_array(
             $to->value,
-            $allowedTransitions[$from->value] ?? [],
+            array_map(fn($s) => $s instanceof OrderItemStatus ? $s->value : $s, $allowedTransitions[$from->value] ?? []),
             true
         );
     }

@@ -5,15 +5,15 @@ namespace App\Events\Order;
 use App\Models\OrderItem;
 use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Broadcasting\PresenceChannel;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class OrderItemStatusUpdated
+class OrderItemStatusUpdated implements ShouldBroadcastNow
 {
-    use Dispatchable, SerializesModels;
+    use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public function __construct(
         public OrderItem $item,
@@ -25,17 +25,13 @@ class OrderItemStatusUpdated
     {
         $order = $this->item->order;
 
-        $channels = [
+        return [
             new PrivateChannel('restaurant.' . $order->restaurant_id . '.kitchen'),
             new PrivateChannel('restaurant.' . $order->restaurant_id . '.waiters'),
-            new PrivateChannel('order.' . $order->id),
+
+            // Public for Customer
+            new Channel('order.' . $order->id),
         ];
-
-        if ($order->table_id) {
-            $channels[] = new PrivateChannel('table.' . $order->table_id);
-        }
-
-        return $channels;
     }
 
     public function broadcastAs(): string

@@ -8,20 +8,22 @@ use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PresenceChannel;
 use Illuminate\Broadcasting\PrivateChannel;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcast; // Import this
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class OrderCreated
+// 1. MUST implement ShouldBroadcast
+class OrderCreated implements ShouldBroadcastNow
 {
-    use Dispatchable, SerializesModels;
+    // 2. Add InteractsWithSockets trait
+    use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public function __construct(public Order $order) {}
 
     public function broadcastOn(): array
     {
         $channels = [
-            // KDS + manager screens
             new PrivateChannel('restaurant.' . $this->order->restaurant_id . '.kitchen'),
             new PrivateChannel('restaurant.' . $this->order->restaurant_id . '.waiters'),
             new PrivateChannel('order.' . $this->order->id),
@@ -41,7 +43,6 @@ class OrderCreated
 
     public function broadcastWith(): array
     {
-        // Shape payload using your OrderResource
         $resource = new OrderResource(
             $this->order->loadMissing(['items.product', 'table', 'waiter'])
         );

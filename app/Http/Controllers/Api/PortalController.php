@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Enums\OrderItemStatus;
 use App\Enums\OrderStatus;
+use App\Enums\PaymentStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -23,14 +24,14 @@ class PortalController extends Controller
             return response()->json(['message' => 'Invalid table code'], 404);
         }
 
-        // Check for an Active Order (Not completed/cancelled)
+        // Check for an Active Order
         $activeOrder = Order::where('table_id', $table->id)
             ->whereIn('status', [OrderStatus::PENDING, OrderStatus::PREPARING, OrderStatus::READY, OrderStatus::SERVED])
             ->with(['items.product'])
             ->latest()
             ->first();
 
-        // Fetch Menu (Standard logic)
+        // Fetch Menu
         $categories = Category::where('restaurant_id', $table->restaurant_id)
             ->with(['products' => function ($query) {
                 $query->where('is_available', true);
@@ -49,12 +50,12 @@ class PortalController extends Controller
                     'price' => (float) $prod->price,
                     'image' => $prod->image_path ? Storage::disk('public')->url($prod->image_path) : null,
                     'is_available' => (bool) $prod->is_available,
-                    'is_popular' => false,
+                    'is_popular' => false, // Logic for popular items can be added here
                 ];
             });
         })->values();
 
-        // Transform Active Order for Frontend if exists
+        // Transform Active Order
         $formattedOrder = null;
         if ($activeOrder) {
             $formattedOrder = [
@@ -64,18 +65,18 @@ class PortalController extends Controller
                 'timestamp' => $activeOrder->created_at->timestamp * 1000,
                 'items' => $activeOrder->items->map(function ($item) {
                     return [
-                        'order_item_id' => $item->id, // Crucial for editing
+                        'order_item_id' => $item->id,
                         'product' => [
                             'id' => $item->product_id,
                             'name' => $item->product->name,
                             'price' => (float) $item->unit_price,
-                            'description' => $item->product->description, // needed for UI consistency
+                            'description' => $item->product->description,
                             'image' => $item->product->image_path ? Storage::disk('public')->url($item->product->image_path) : null,
                         ],
                         'quantity' => $item->quantity,
                         'notes' => $item->notes,
-                        'status' => $item->status, // pending, cooking, etc.
-                        'tempId' => 'existing-' . $item->id // Helper for frontend keys
+                        'status' => $item->status,
+                        'tempId' => 'existing-' . $item->id
                     ];
                 })
             ];
@@ -97,7 +98,6 @@ class PortalController extends Controller
     {
         $table = Table::where('code', $code)->firstOrFail();
 
-        // Guard: Prevent duplicate active orders
         $existingOrder = Order::where('table_id', $table->id)
             ->whereIn('status', [OrderStatus::PENDING, OrderStatus::PREPARING, OrderStatus::READY])
             ->exists();
@@ -106,17 +106,11 @@ class PortalController extends Controller
             return response()->json(['message' => 'There is already an active order for this table.'], 409);
         }
 
-        // ... (Validation & Logic same as previous turn) ...
-        // For brevity, using the Logic from previous response,
-        // essentially creating Order and OrderItems.
-        // See implementation in Update method below for the logic logic.
-
         return $this->processOrderSave(new Order(), $request, $table);
     }
 
     public function update(Request $request, $code, Order $order)
     {
-        // 1. Validate
         if ($order->status === OrderStatus::COMPLETED || $order->status === OrderStatus::CANCELLED) {
             return response()->json(['message' => 'Cannot modify a closed order.'], 403);
         }
@@ -130,7 +124,6 @@ class PortalController extends Controller
         return $this->processOrderSave($order, $request, $order->table, true);
     }
 
-    // Shared logic for Create and Update
     private function processOrderSave(Order $order, Request $request, $table, $isUpdate = false)
     {
         try {
@@ -141,17 +134,18 @@ class PortalController extends Controller
                     'restaurant_id' => $table->restaurant_id,
                     'table_id' => $table->id,
                     'status' => OrderStatus::PENDING,
+                    'payment_status' => PaymentStatus::UNPAID,
                     'total' => 0,
+                    'opened_at' => now(),
                 ])->save();
             }
 
-            // Sync Items Logic
             $incomingItems = collect($request->items);
             $existingItems = $isUpdate ? $order->items : collect([]);
 
             $total = 0;
 
-            // 1. Process Incoming Items (Create or Update)
+            // 1. Process Incoming Items
             foreach ($incomingItems as $itemData) {
                 $prodId = $itemData['product']['id'];
                 $qty = $itemData['quantity'];
@@ -160,11 +154,10 @@ class PortalController extends Controller
                 $orderItemId = $itemData['order_item_id'] ?? null;
 
                 if ($orderItemId) {
-                    // Update existing item
                     $existingItem = $existingItems->find($orderItemId);
                     if ($existingItem) {
-                        // CONSTRAINT: Cannot reduce quantity if cooking/served
-                        if ($existingItem->status !== OrderItemStatus::COOKING && $qty < $existingItem->quantity) {
+                        // CONSTRAINT: Strict check - only PENDING items can be modified in quantity if reducing
+                        if ($existingItem->status !== OrderItemStatus::PENDING && $qty < $existingItem->quantity) {
                             throw new \Exception("Cannot remove items that are already preparing.");
                         }
 
@@ -176,7 +169,6 @@ class PortalController extends Controller
                         $total += ($price * $qty);
                     }
                 } else {
-                    // Create new item
                     OrderItem::create([
                         'order_id' => $order->id,
                         'product_id' => $prodId,
@@ -190,13 +182,13 @@ class PortalController extends Controller
                 }
             }
 
-            // 2. Handle Removals (Items in DB but not in Request)
+            // 2. Handle Removals
             if ($isUpdate) {
                 $incomingIds = $incomingItems->pluck('order_item_id')->filter()->toArray();
                 $itemsToDelete = $existingItems->whereNotIn('id', $incomingIds);
 
                 foreach ($itemsToDelete as $itemToDelete) {
-                    // CONSTRAINT: Cannot delete if cooking/served
+                    // CONSTRAINT: Cannot delete if not pending
                     if ($itemToDelete->status !== OrderItemStatus::PENDING) {
                         throw new \Exception("Cannot remove '{$itemToDelete->product->name}' as it is already being prepared.");
                     }
@@ -204,7 +196,6 @@ class PortalController extends Controller
                 }
             }
 
-            // 3. Update Order Total & Timestamp to bump it to top of kitchen list
             $order->update([
                 'total' => $total,
                 'updated_at' => now()

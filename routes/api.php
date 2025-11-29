@@ -13,12 +13,16 @@ use App\Http\Controllers\Api\StaffController;
 use App\Http\Controllers\Api\TableController;
 use App\Http\Controllers\Api\TransactionController;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
 
+// This creates the POST /api/broadcasting/auth route
+// It uses 'auth:sanctum' so your frontend token works.
+Broadcast::routes(['middleware' => ['auth:sanctum']]);
 
 /*
 |--------------------------------------------------------------------------
