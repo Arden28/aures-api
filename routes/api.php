@@ -24,6 +24,7 @@ Route::get('/user', function (Request $request) {
 // It uses 'auth:sanctum' so your frontend token works.
 Broadcast::routes(['middleware' => ['auth:sanctum']]);
 
+
 /*
 |--------------------------------------------------------------------------
 | API Routes
