@@ -198,6 +198,9 @@ class OrderController extends Controller
             $order->closed_at = now();
         }
 
+        // Assign waiter if provided (for claiming orders)
+        $order->waiter_id = $request->waiter_id ?: null;
+
         $order->save();
 
         // broadcast
