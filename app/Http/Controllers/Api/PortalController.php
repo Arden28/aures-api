@@ -24,9 +24,15 @@ class PortalController extends Controller
             return response()->json(['message' => 'Invalid table code'], 404);
         }
 
+        // Get the current date to filter orders
+        $today = now()->startOfDay();
+
         // Check for an Active Order
         $activeOrder = Order::where('table_id', $table->id)
+            // 1. Check status (PENDING, PREPARING, READY, SERVED)
             ->whereIn('status', [OrderStatus::PENDING, OrderStatus::PREPARING, OrderStatus::READY, OrderStatus::SERVED])
+            // 2. Filter orders created TODAY
+            ->whereDate('created_at', '>=', $today)
             ->with(['items.product'])
             ->latest()
             ->first();
@@ -87,7 +93,7 @@ class PortalController extends Controller
                 'id' => session()->getId(),
                 'table_name' => $table->name,
                 'restaurant_name' => $table->restaurant->name,
-                'currency' => 'USD',
+                'currency' => $table->restaurant->currency ?? 'USD',
             ],
             'menu' => ['categories' => $mappedCategories, 'products' => $mappedProducts],
             'active_order' => $formattedOrder
