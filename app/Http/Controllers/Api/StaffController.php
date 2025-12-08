@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\StaffStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Staff\StoreStaffRequest;
 use App\Http\Requests\Staff\UpdateStaffRequest;
@@ -100,6 +101,45 @@ class StaffController extends Controller
         $staff->update($data);
 
         return new StaffResource($staff->fresh('restaurant'));
+    }
+
+    /**
+     * Change staff status (active / inactive).
+     */
+    public function updateStatus(Request $request, User $staff): JsonResponse
+    {
+        $this->authorizeRestaurant($request, $staff); // or whatever auth check you use
+
+        $request->validate([
+            'status' => 'required|in:' . implode(',', array_column(StaffStatus::cases(), 'value')),
+        ]);
+
+        $newStatus     = $request->status;
+        $currentStatus = $staff->status->value;
+
+        // Only allow ACTIVE <-> INACTIVE transitions
+        $allowedTransitions = [
+            StaffStatus::ACTIVE->value   => [StaffStatus::INACTIVE->value],
+            StaffStatus::INACTIVE->value => [StaffStatus::ACTIVE->value],
+        ];
+
+        if (! in_array($newStatus, $allowedTransitions[$currentStatus] ?? [], true)) {
+            return response()->json([
+                'message' => "Invalid transition: staff cannot move from '$currentStatus' to '$newStatus'.",
+            ], 422);
+        }
+
+        $staff->status = $newStatus;
+        $staff->save();
+
+        return response()->json([
+            'message' => 'Staff status updated successfully.',
+            'data'    => [
+                'id'         => $staff->id,
+                'old_status' => $currentStatus,
+                'new_status' => $staff->status->value,
+            ],
+        ]);
     }
 
     /**

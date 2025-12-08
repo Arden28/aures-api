@@ -256,6 +256,10 @@ Route::prefix('v1')->group(function () {
             ->parameter('staff', 'staff') // binding to User model
                 ->names('staff');
 
+        // Staff status state machine endpoint
+        Route::patch('staff/{staff}/status', [StaffController::class, 'updateStatus'])
+            ->name('staff.update-status');
+
         /*
         |--------------------------------------------------------------------------
         | Restaurant Settings
