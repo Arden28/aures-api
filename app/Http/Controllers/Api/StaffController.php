@@ -123,11 +123,11 @@ class StaffController extends Controller
             StaffStatus::INACTIVE->value => [StaffStatus::ACTIVE->value],
         ];
 
-        if (! in_array($newStatus, $allowedTransitions[$currentStatus] ?? [], true)) {
-            return response()->json([
-                'message' => "Invalid transition: staff cannot move from '$currentStatus' to '$newStatus'.",
-            ], 422);
-        }
+        // if (! in_array($newStatus, $allowedTransitions[$currentStatus] ?? [], true)) {
+        //     return response()->json([
+        //         'message' => "Invalid transition: staff cannot move from '$currentStatus' to '$newStatus'.",
+        //     ], 422);
+        // }
 
         $staff->status = $newStatus;
         $staff->save();
