@@ -106,6 +106,7 @@ class AuthController extends Controller
                 'name'  => $user->name,
                 'email' => $user->email,
                 'role'  => $user->role,
+                'status'  => $user->status,
                 'restaurant_id' => $user->restaurant_id,
                 'restaurant_name' => $user->restaurant->name ?? null,
             ],
