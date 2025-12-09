@@ -35,8 +35,15 @@ class OrderController extends Controller
             ->where('restaurant_id', $restaurantId)
             ->latest();
 
+        if($user->role !== 'owner' && $user->role !== 'manager'){
+            $query->whereBetween('opened_at', [
+                now()->startOfDay(),
+                now()->endOfDay()
+            ]);
+        }
+
         if($user->role === 'waiter') {
-            $query->where('waiter_id', $user->id);
+            $query->where('waiter_id', $user->id)->orWhereNull('waiter_id');
         }
         // FIX: Handle array of statuses for KDS filtering
         if ($status = $request->query('status')) {
