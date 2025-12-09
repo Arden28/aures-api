@@ -42,6 +42,13 @@ class OrderController extends Controller
             ]);
         }
 
+        if($user->role === 'kitchen'){
+            $query->whereBetween('created_at', [
+                now()->startOfDay(),
+                now()->endOfDay()
+            ]);
+        }
+
         if($user->role === 'waiter') {
             $query->where('waiter_id', $user->id)->orWhereNull('waiter_id');
         }
