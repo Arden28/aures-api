@@ -29,10 +29,15 @@ class OrderController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user         = $request->user();
-        $restaurantId = $user->restaurant_id;$query = Order::with(['items.product', 'table', 'waiter', 'transactions'])
+        $restaurantId = $user->restaurant_id;
+
+        $query = Order::with(['items.product', 'table', 'waiter', 'transactions'])
             ->where('restaurant_id', $restaurantId)
             ->latest();
 
+        if($user->role === 'waiter') {
+            $query->where('waiter_id', $user->id);
+        }
         // FIX: Handle array of statuses for KDS filtering
         if ($status = $request->query('status')) {
             $statuses = is_array($status) ? $status : explode(',', $status);
