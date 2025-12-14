@@ -41,8 +41,8 @@ class DemoContentSeeder extends Seeder
              |-----------------------------------------------------------*/
             $restaurantsData = [
                 [
-                    'name'              => 'Le Petit Bistro',
-                    'slug'              => 'le-petit-bistro',
+                    'name'              => 'Aures Bistro',
+                    'slug'              => 'aures-bistro',
                     'currency'          => 'EUR',
                     'timezone'          => 'Europe/Paris',
                     'tax_rate'          => 0.10, // VAT
