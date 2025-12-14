@@ -80,6 +80,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/{code}', [PortalController::class, 'index']);
         Route::post('/{code}/order', [PortalController::class, 'store']);
         Route::put('/{code}/order/{order}', [PortalController::class, 'update']);
+        Route::post('/{code}/session/{sessionId}/close', [PortalController::class, 'closeSession']);
     });
 
     /*
