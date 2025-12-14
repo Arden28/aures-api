@@ -36,7 +36,6 @@ return new class extends Migration
 
             $table->index(['table_id', 'status']);
 
-            $table->timestamps();
         });
     }
 
