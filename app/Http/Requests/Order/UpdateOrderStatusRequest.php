@@ -40,6 +40,7 @@ class UpdateOrderStatusRequest extends FormRequest
 
         return [
             'status' => ['required', 'in:' . implode(',', $values)],
+            'session_id' => ['sometimes', 'nullable', 'integer', 'exists:table_sessions,id'],
             'waiter_id' => ['sometimes', 'nullable', 'integer', 'exists:users,id'],
         ];
     }

@@ -11,9 +11,11 @@ use App\Models\Category;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Table;
+use App\Models\TableSession;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Throwable;
 
 class PortalController extends Controller
@@ -35,22 +37,59 @@ class PortalController extends Controller
             return response()->json(['message' => 'Invalid table code'], 404);
         }
 
-        // Get the start of the business day. Use opened_at for reliable scoping.
         $startOfDay = now()->startOfDay();
 
-        $activeOrder = Order::where('table_id', $table->id)
-            // Active lifecycle for the customer-facing portal
-            ->whereIn('status', [
-                OrderStatus::PENDING,
-                OrderStatus::PREPARING,
-                OrderStatus::READY,
-                OrderStatus::SERVED,
-            ])
-            // IMPROVEMENT: Scope by opened_at (the time the order was first created)
-            ->where('opened_at', '>=', $startOfDay)
-            ->with(['items.product'])
+        // 1. Find the ACTIVE Table Session for this table TODAY
+        $activeSession = TableSession::where('table_id', $table->id)
+            ->where('status', '!=', 'closed')
+            ->where('created_at', '>=', $startOfDay)
+            ->with(['orders' => function ($query) {
+                // Eager load all active orders for this session
+                $query->whereIn('status', [
+                    OrderStatus::PENDING, OrderStatus::PREPARING,
+                    OrderStatus::READY, OrderStatus::SERVED,
+                ])->with('items.product');
+            }])
             ->latest()
             ->first();
+
+        // 2. Aggregate all data from the session
+        $formattedOrder = null;
+        if ($activeSession && $activeSession->orders->isNotEmpty()) {
+            // Aggregate all items from all active orders into a single list
+            $aggregatedItems = $activeSession->orders->flatMap(function ($order) {
+                return $order->items->map(function ($item) {
+                    // Create the PortalCartItem structure for the frontend
+                    return [
+                        'order_id'      => $item->order_id, // New field to track parent order
+                        'order_item_id' => $item->id,
+                        'product'       => [
+                            'id'          => $item->product_id,
+                            'name'        => $item->product->name,
+                            'price'       => (float) $item->unit_price,
+                            'description' => $item->product->description,
+                            'image'       => $item->product->image_path
+                                ? Storage::disk('public')->url($item->product->image_path)
+                                : null,
+                        ],
+                        'quantity' => $item->quantity,
+                        'notes'    => $item->notes,
+                        'status'   => $item->status,
+                        'tempId'   => 'existing-'.$item->id,
+                    ];
+                });
+            })->values();
+
+            $formattedOrder = [
+                'session_id'    => $activeSession->id, // Use session ID as the main reference
+                'status'        => $activeSession->status, // Use session status
+                'items'         => $aggregatedItems,
+                'total_due'     => $activeSession->totalDue(), // Use model helper to sum total
+                'estimatedTime' => '15-20 mins',
+                'timestamp'     => $activeSession->created_at->timestamp * 1000,
+            ];
+        }
+
 
         // Load menu for this restaurant (only available products)
         $categories = Category::where('restaurant_id', $table->restaurant_id)
@@ -80,47 +119,20 @@ class PortalController extends Controller
             });
         })->values();
 
-        // Normalize active order snapshot for the frontend
-        $formattedOrder = null;
-        if ($activeOrder) {
-            $formattedOrder = [
-                'id'           => $activeOrder->id,
-                'status'       => $activeOrder->status,
-                'estimatedTime'=> '15-20 mins',
-                'timestamp'    => $activeOrder->created_at->timestamp * 1000,
-                'items'        => $activeOrder->items->map(function ($item) {
-                    return [
-                        'order_item_id' => $item->id,
-                        'product'       => [
-                            'id'          => $item->product_id,
-                            'name'        => $item->product->name,
-                            'price'       => (float) $item->unit_price,
-                            'description' => $item->product->description,
-                            'image'       => $item->product->image_path
-                                ? Storage::disk('public')->url($item->product->image_path)
-                                : null,
-                        ],
-                        'quantity' => $item->quantity,
-                        'notes'    => $item->notes,
-                        'status'   => $item->status,
-                        'tempId'   => 'existing-' . $item->id,
-                    ];
-                }),
-            ];
-        }
-
         return response()->json([
             'session' => [
-                'id'              => session()->getId(),
+                'id'              => $table->id, // Use table ID here
                 'table_name'      => $table->name,
                 'restaurant_name' => $table->restaurant->name,
                 'currency'        => $table->restaurant->currency ?? 'USD',
+                'active_session_id' => $activeSession->id ?? null, // NEW
+                'session_status'  => $activeSession->status ?? 'closed', // NEW
             ],
             'menu'         => [
                 'categories' => $mappedCategories,
                 'products'   => $mappedProducts,
             ],
-            'active_order' => $formattedOrder,
+            'active_order' => $formattedOrder, // Renamed to active_session_data?
         ]);
     }
 
@@ -141,27 +153,66 @@ class PortalController extends Controller
             'items.*.product.price' => 'required|numeric|min:0',
             'items.*.quantity'      => 'required|integer|min:1',
             'items.*.notes'         => 'nullable|string',
+            'session_id'            => 'nullable|exists:table_sessions,id',
         ]);
 
-        // Ensure there is no other active order for that table TODAY.
-        $existingOrder = Order::where('table_id', $table->id)
-            ->whereIn('status', [
-                OrderStatus::PENDING,
-                OrderStatus::PREPARING,
-                OrderStatus::READY,
-                OrderStatus::SERVED,
-            ])
-            // IMPROVEMENT: Use opened_at to enforce daily scope
-            ->where('opened_at', '>=', now()->startOfDay())
-            ->exists();
+        $startOfDay = now()->startOfDay();
 
-        if ($existingOrder) {
-            return response()->json([
-                'message' => 'There is already an active order for this table today.',
-            ], 409);
+        // 1. Find or Create the TableSession
+        if ($request->session_id) {
+            // Client is trying to update a known session
+            $session = TableSession::where('id', $request->session_id)
+                ->where('table_id', $table->id)
+                ->where('status', '!=', 'closed')
+                ->firstOrFail();
+        } else {
+            // Find the active session for today (if exists)
+            $session = TableSession::where('table_id', $table->id)
+                ->where('status', '!=', 'closed')
+                ->where('created_at', '>=', $startOfDay)
+                ->latest()
+                ->first();
         }
 
-        return $this->processOrderSave(new Order(), $request, $table, false);
+        if (! $session) {
+            // No active session found: START A NEW SESSION
+            $session = TableSession::create([
+                'table_id'      => $table->id,
+                'restaurant_id' => $table->restaurant_id,
+                'session_code'  => Str::random(8), // Unique code for reference
+                'started_by'    => 'client',
+                'status'        => 'active',
+            ]);
+        } else {
+             // Block if session is marked for payment or closed
+             if ($session->status === 'waiting-payment' || $session->status === 'closed') {
+                 return response()->json([
+                     'message' => 'The bill is currently being finalized. Please wait or call a waiter.',
+                 ], 403);
+             }
+        }
+
+        // 2. Process the order: We always create a NEW Order object
+        //    if the previous order was already sent to the kitchen (PREPARING/READY/SERVED)
+        //    OR if the payload only contains new items (no existing order_item_id)
+
+        // Find the LATEST active order for this session to update it,
+        // but ONLY if the items are PENDING.
+        $lastOrder = $session->orders()
+            ->where('status', OrderStatus::PENDING)
+            ->latest()
+            ->first();
+
+        // If the client's cart contains items already sent to the kitchen,
+        // we MUST create a new order header for the new PENDING items.
+        // For simplicity, let's always create a new Order if no PENDING order exists,
+        // or update the last PENDING order.
+
+        $orderToProcess = $lastOrder ?? new Order();
+        $isUpdate = $orderToProcess->exists;
+
+        // Pass the session to the core persistence logic
+        return $this->processOrderSave(new Order(), $request, $table, $session, false);
     }
 
     /**
@@ -189,9 +240,28 @@ class PortalController extends Controller
             'items.*.quantity'      => 'required|integer|min:1',
             'items.*.notes'         => 'nullable|string',
             'items.*.order_item_id' => 'nullable|integer',
+            'session_id'            => 'nullable|exists:table_sessions,id',
         ]);
 
-        return $this->processOrderSave($order, $request, $order->table, true);
+        $startOfDay = now()->startOfDay();
+
+        // 1. Find or Create the TableSession
+        if ($request->session_id) {
+            // Client is trying to update a known session
+            $session = TableSession::where('id', $request->session_id)
+                ->where('table_id', $order->table?->id)
+                ->where('status', '!=', 'closed')
+                ->firstOrFail();
+        } else {
+            // Find the active session for today (if exists)
+            $session = TableSession::where('table_id', $order->table?->id)
+                ->where('status', '!=', 'closed')
+                ->where('created_at', '>=', $startOfDay)
+                ->latest()
+                ->first();
+        }
+
+        return $this->processOrderSave($order, $request, $order->table, $session, true);
     }
 
     /**
@@ -207,17 +277,18 @@ class PortalController extends Controller
      * - Mark table as occupied.
      * - Dispatch events after successful commit.
      */
-    private function processOrderSave(Order $order, Request $request, $table, bool $isUpdate = false)
+    private function processOrderSave(Order $order, Request $request, $table, TableSession $session, bool $isUpdate = false)
     {
         try {
             $incomingItems = collect($request->items);
             $wasNewOrder   = ! $isUpdate || ! $order->exists;
 
             // Wrap everything in a transaction so either the whole change set passes or fails.
-            $order = DB::transaction(function () use ($order, $table, $incomingItems, $isUpdate) {
+            $order = DB::transaction(function () use ($order, $session, $table, $incomingItems, $isUpdate) {
                 if (! $isUpdate) {
                     // Initialize a brand-new order
                     $order->fill([
+                        'table_session_id' => $session->id,
                         'restaurant_id'  => $table->restaurant_id,
                         'table_id'       => $table->id,
                         'status'         => OrderStatus::PENDING,
@@ -301,8 +372,12 @@ class PortalController extends Controller
                 // 3. Update order header with new total
                 $order->update([
                     'total'      => $total,
-                    'updated_at' => now(), // not strictly necessary; Eloquent handles timestamps
                 ]);
+
+                // // 4. Update the Session status (only if needed, 'active' is fine for now)
+                // if ($session->status === 'waiting-confirmation') {
+                //     $session->update(['status' => 'active']);
+                // }
 
                 // 4. Ensure table is flagged as occupied
                 $table->update(['status' => 'occupied']);
@@ -319,13 +394,13 @@ class PortalController extends Controller
                 $order->loadMissing(['items.product', 'table', 'waiter']);
 
                 event(new OrderCreated($order));
-            } else {
-                // Optional: you might want to broadcast an "OrderUpdated" type event here.
-                // e.g. event(new OrderUpdated($order->loadMissing(['items.product', 'table', 'waiter'])));
             }
+            // NOTE: You should dispatch a new OrderUpdated or SessionUpdated event here
+            // to notify the floor plan about the new overall tab total.
 
             return response()->json([
-                'id'            => $order->id,
+                'session_id'    => $session->id, // NEW: Return the session ID
+                'order_id'      => $order->id,
                 'status'        => $order->status,
                 'estimatedTime' => '15-20 mins',
                 'timestamp'     => now()->timestamp * 1000,

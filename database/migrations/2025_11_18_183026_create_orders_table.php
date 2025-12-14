@@ -18,6 +18,7 @@ return new class extends Migration
 
             $table->foreignId('restaurant_id')->constrained()->cascadeOnDelete();
             $table->foreignId('table_id')->nullable()->constrained()->nullOnDelete();
+            $table->foreignId('table_session_id')->nullable()->constrained()->nullOnDelete();
             $table->foreignId('client_id')->nullable()->constrained()->nullOnDelete();
             $table->foreignId('waiter_id')->nullable()->constrained('users')->nullOnDelete();
 

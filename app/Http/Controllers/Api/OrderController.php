@@ -17,6 +17,7 @@ use App\Http\Resources\OrderResource;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
+use App\Models\TableSession;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -224,40 +225,94 @@ class OrderController extends Controller
      |                       ORDER STATUS UPDATE (State Machine)
      ========================================================================= */
 
+     /**
+     * Update the status of an existing order.
+     * Handles transitions (e.g. pending -> preparing), waiter assignment,
+     * and automatic session status updates.
+     */
     public function updateStatus(UpdateOrderStatusRequest $request, Order $order): JsonResponse
     {
+        // 1. Authorization: Ensure user owns this restaurant resource
         $this->authorizeRestaurant($request, $order);
 
         $newStatus     = OrderStatus::from($request->status);
         $currentStatus = $order->status;
 
+        // 2. Validation: Check if this state change is allowed
+        // (e.g. prevent moving from 'served' back to 'pending' if strict mode is on)
         if (! $this->canTransitionOrder($currentStatus, $newStatus)) {
             return response()->json([
                 'message' => "Invalid transition: cannot move order from '{$currentStatus->value}' to '{$newStatus->value}'.",
             ], 422);
         }
 
-        $order->status = $newStatus;
+        // 3. Update Logic (Wrapped in Transaction for data integrity)
+        DB::transaction(function () use ($order, $newStatus, $request, $currentStatus) {
 
-        if (in_array($newStatus, [OrderStatus::COMPLETED, OrderStatus::CANCELLED], true)) {
-            $order->closed_at = now();
-        }
+            // A. Update Status
+            $order->status = $newStatus;
 
-        // Assign waiter if provided (for claiming orders)
-        $order->waiter_id = $request->waiter_id ?: null;
+            // B. Set Closing Timestamp if completed/cancelled
+            if (in_array($newStatus, [OrderStatus::COMPLETED, OrderStatus::CANCELLED], true)) {
+                $order->closed_at = now();
+            }
 
-        $order->save();
+            // C. Handle Waiter Assignment (Claiming)
+            // Only update if a waiter_id is explicitly provided in the request.
+            if ($request->filled('waiter_id')) {
+                $order->waiter_id = $request->waiter_id;
 
-        // broadcast
-        event(new OrderStatusUpdated($order, $currentStatus->value, $newStatus->value));
+                // D. Update Session Status
+                // If a waiter claims an order, the table session becomes 'active' (seated/served)
+                // instead of just 'waiting-confirmation'.
+                $session = $this->resolveTableSession($request, $order);
+
+                if ($session && $session->status === 'waiting-confirmation') {
+                    $session->update(['status' => 'active']);
+                }
+            }
+
+            $order->save();
+
+            // E. Broadcast Event (Real-time updates for KDS/Waiter Apps)
+            event(new OrderStatusUpdated($order, $currentStatus->value, $newStatus->value));
+        });
 
         return response()->json([
             'message' => 'Order status updated.',
             'data'    => [
+                'order_id'   => $order->id,
                 'old_status' => $currentStatus->value,
                 'new_status' => $order->status->value,
+                'waiter'     => $order->waiter?->name, // Helpful to return who claimed it
             ],
         ]);
+    }
+
+    /**
+     * Helper to find the correct TableSession for this order.
+     * Prioritizes explicit session_id, falls back to the latest open session for the table.
+     */
+    private function resolveTableSession($request, Order $order)
+    {
+        if (!$order->table_id) {
+            return null; // Takeout orders might not have a table session
+        }
+
+        // 1. Try explicit ID from request
+        if ($request->session_id) {
+            return TableSession::where('id', $request->session_id)
+                ->where('table_id', $order->table_id)
+                ->where('status', '!=', 'closed')
+                ->firstOrFail();
+        }
+
+        // 2. Fallback: Find latest active session for this table created today
+        return TableSession::where('table_id', $order->table_id)
+            ->where('status', '!=', 'closed')
+            ->where('created_at', '>=', now()->startOfDay())
+            ->latest()
+            ->first();
     }
 
 
