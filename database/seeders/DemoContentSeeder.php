@@ -169,7 +169,7 @@ class DemoContentSeeder extends Seeder
                             'restaurant_id' => $restaurant->id,
                             'floor_plan_id' => $plan->id,
                             'name'          => "{$plan->name} {$i}",
-                            'code'          => strtoupper(Str::substr($plan->name, 0, 2)) . $i,
+                            'code'          => strtoupper(Str::substr($plan->name, 0, 2)) . '-' . $restaurant->id . '-' . $i,
                             'capacity'      => $num(2, 6),
                             'qr_token'      => Str::uuid()->toString(),
                             'status'        => $pick($statusPool),
