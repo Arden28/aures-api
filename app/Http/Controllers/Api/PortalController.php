@@ -307,7 +307,9 @@ class PortalController extends Controller
                 }
 
                 // D. Update Order Totals
-                $order->update(['total' => $runningTotal]);
+                $order->update([
+                    'total' => $runningTotal,
+                    ]);
                 $table->update(['status' => 'occupied']);
 
                 return $order;
@@ -337,6 +339,7 @@ class PortalController extends Controller
     {
         return [
             'order_id'      => $item->order_id,
+            'order_status'  => $item->order->status->value,
             'order_item_id' => $item->id,
             'product'       => [
                 'id'          => $item->product_id,
