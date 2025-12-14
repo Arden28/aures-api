@@ -35,23 +35,49 @@ class OrderController extends Controller
             ->where('restaurant_id', $restaurantId)
             ->latest();
 
-        if($user->role !== 'owner' && $user->role !== 'manager'){
+        // Define the daily scope once
+        $startOfDay = now()->startOfDay();
+        $endOfDay   = now()->endOfDay();
+
+        // -------------------------------------------------------------
+        // Unify daily filtering for operational roles
+        // -------------------------------------------------------------
+
+        // Owner/Manager sees ALL orders (no daily filter)
+        if ($user->role !== 'owner' && $user->role !== 'manager') {
+            // Waiter, Kitchen, etc., only see orders opened today
             $query->whereBetween('opened_at', [
-                now()->startOfDay(),
-                now()->endOfDay()
+                $startOfDay,
+                $endOfDay
             ]);
         }
 
-        if($user->role === 'kitchen'){
-            $query->whereBetween('created_at', [
-                now()->startOfDay(),
-                now()->endOfDay()
-            ]);
+        // Kitchen sees items that need to be prepared/served.
+        // It needs a special filter to show ONLY items in PENDING/PREPARING/READY states.
+        if ($user->role === 'kitchen') {
+            // REMOVED: The created_at filter is redundant and inaccurate.
+            // We rely on the opened_at filter above AND the status filter below.
+
+            // To be truly useful, the kitchen needs to see pending/preparing/ready orders.
+            // If the request doesn't specify a status, we default to the KDS view.
+             if (! $request->query('status')) {
+                 $query->whereIn('status', [
+                     OrderStatus::PENDING,
+                     OrderStatus::PREPARING,
+                     OrderStatus::READY
+                 ]);
+             }
         }
 
-        if($user->role === 'waiter') {
-            $query->where('waiter_id', $user->id)->orWhereNull('waiter_id');
+        // Waiter sees their own orders + unassigned orders opened today.
+        if ($user->role === 'waiter') {
+            // IMPROVEMENT: Combine both waiter filters correctly with a callback
+            $query->where(function ($q) use ($user) {
+                $q->where('waiter_id', $user->id)
+                  ->orWhereNull('waiter_id');
+            });
         }
+
         // FIX: Handle array of statuses for KDS filtering
         if ($status = $request->query('status')) {
             $statuses = is_array($status) ? $status : explode(',', $status);

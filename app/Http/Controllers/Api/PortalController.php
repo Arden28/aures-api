@@ -35,8 +35,8 @@ class PortalController extends Controller
             return response()->json(['message' => 'Invalid table code'], 404);
         }
 
-        // Use startOfDay to scope orders to "today" for this table.
-        $today = now()->startOfDay();
+        // Get the start of the business day. Use opened_at for reliable scoping.
+        $startOfDay = now()->startOfDay();
 
         $activeOrder = Order::where('table_id', $table->id)
             // Active lifecycle for the customer-facing portal
@@ -46,8 +46,8 @@ class PortalController extends Controller
                 OrderStatus::READY,
                 OrderStatus::SERVED,
             ])
-            // Only consider orders opened today
-            ->where('created_at', '>=', $today)
+            // IMPROVEMENT: Scope by opened_at (the time the order was first created)
+            ->where('opened_at', '>=', $startOfDay)
             ->with(['items.product'])
             ->latest()
             ->first();
@@ -143,18 +143,21 @@ class PortalController extends Controller
             'items.*.notes'         => 'nullable|string',
         ]);
 
-        // Ensure there is no other active order for that table
+        // Ensure there is no other active order for that table TODAY.
         $existingOrder = Order::where('table_id', $table->id)
             ->whereIn('status', [
                 OrderStatus::PENDING,
                 OrderStatus::PREPARING,
                 OrderStatus::READY,
+                OrderStatus::SERVED,
             ])
+            // IMPROVEMENT: Use opened_at to enforce daily scope
+            ->where('opened_at', '>=', now()->startOfDay())
             ->exists();
 
         if ($existingOrder) {
             return response()->json([
-                'message' => 'There is already an active order for this table.',
+                'message' => 'There is already an active order for this table today.',
             ], 409);
         }
 
