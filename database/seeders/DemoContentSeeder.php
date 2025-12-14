@@ -32,36 +32,37 @@ class DemoContentSeeder extends Seeder
         DB::transaction(function () {
             $pick = fn(array $arr) => $arr[array_rand($arr)];
             $num  = fn(int $min, int $max) => random_int($min, $max);
+            $float = fn(float $min, float $max) => round($min + mt_rand() / mt_getrandmax() * ($max - $min), 2);
 
             $now = Carbon::now();
 
             /* ----------------------------------------------------------
-             | 1. Restaurants
+             | 1. Restaurants (Europe / Euro Context)
              |-----------------------------------------------------------*/
             $restaurantsData = [
                 [
-                    'name'                => 'Aures Bistro',
-                    'slug'                => 'aures-bistro',
-                    'currency'            => 'KES',
-                    'timezone'            => 'Africa/Nairobi',
-                    'tax_rate'            => 0.16,
-                    'service_charge_rate' => 0.10,
-                    'settings'            => [
-                        'ticket_prefix'  => 'AB-',
+                    'name'              => 'Le Petit Bistro',
+                    'slug'              => 'le-petit-bistro',
+                    'currency'          => 'EUR',
+                    'timezone'          => 'Europe/Paris',
+                    'tax_rate'          => 0.10, // VAT
+                    'service_charge_rate' => 0.05,
+                    'settings'          => [
+                        'ticket_prefix'  => 'LPB-',
                         'enable_tips'    => true,
                         'kds_sound'      => true,
                         'order_timeout'  => 900, // seconds
                     ],
                 ],
                 [
-                    'name'                => 'Skyline Rooftop',
-                    'slug'                => 'skyline-rooftop',
-                    'currency'            => 'KES',
-                    'timezone'            => 'Africa/Nairobi',
-                    'tax_rate'            => 0.08,
-                    'service_charge_rate' => 0.05,
-                    'settings'            => [
-                        'ticket_prefix'  => 'SR-',
+                    'name'              => 'Gusto Italiano',
+                    'slug'              => 'gusto-italiano',
+                    'currency'          => 'EUR',
+                    'timezone'          => 'Europe/Rome',
+                    'tax_rate'          => 0.10,
+                    'service_charge_rate' => 0.00, // Coperto usually per head, but simple % here
+                    'settings'          => [
+                        'ticket_prefix'  => 'GST-',
                         'enable_tips'    => true,
                         'kds_sound'      => false,
                         'order_timeout'  => 1200,
@@ -74,33 +75,33 @@ class DemoContentSeeder extends Seeder
                 $restaurant = Restaurant::create($rData);
 
                 /* ------------------------------------------------------
-                 | 2. Users (owner, manager, waiters, kitchen, cashier)
+                 | 2. Users (Owner, Manager, Waiters, Kitchen, Cashier)
                  |-------------------------------------------------------*/
                 $usersByRole = [];
 
                 $owner = User::create([
                     'restaurant_id' => $restaurant->id,
-                    'name'          => $restaurant->name . ' Owner',
+                    'name'          => 'Owner ' . $restaurant->name,
                     'email'         => $restaurant->slug . '+owner@example.com',
-                    'password'      => 'Password!234', // will be hashed by cast
+                    'password'      => 'Password!234',
                     'role'          => UserRole::OWNER,
                 ]);
                 $usersByRole[UserRole::OWNER->value][] = $owner;
 
                 $manager = User::create([
                     'restaurant_id' => $restaurant->id,
-                    'name'          => $restaurant->name . ' Manager',
+                    'name'          => 'Manager ' . $restaurant->name,
                     'email'         => $restaurant->slug . '+manager@example.com',
                     'password'      => 'Password!234',
                     'role'          => UserRole::MANAGER,
                 ]);
                 $usersByRole[UserRole::MANAGER->value][] = $manager;
 
-                // 2 waiters
-                for ($i = 1; $i <= 2; $i++) {
+                // 3 Waiters
+                for ($i = 1; $i <= 3; $i++) {
                     $waiter = User::create([
                         'restaurant_id' => $restaurant->id,
-                        'name'          => "Waiter {$i} " . Str::title(Str::before($restaurant->slug, '-')),
+                        'name'          => "Waiter {$i}",
                         'email'         => $restaurant->slug . "+waiter{$i}@example.com",
                         'password'      => 'Password!234',
                         'role'          => UserRole::WAITER,
@@ -108,11 +109,11 @@ class DemoContentSeeder extends Seeder
                     $usersByRole[UserRole::WAITER->value][] = $waiter;
                 }
 
-                // 2 kitchen
+                // 2 Kitchen Staff
                 for ($i = 1; $i <= 2; $i++) {
                     $kitchen = User::create([
                         'restaurant_id' => $restaurant->id,
-                        'name'          => "Kitchen {$i} " . Str::title(Str::before($restaurant->slug, '-')),
+                        'name'          => "Chef {$i}",
                         'email'         => $restaurant->slug . "+kitchen{$i}@example.com",
                         'password'      => 'Password!234',
                         'role'          => UserRole::KITCHEN,
@@ -120,10 +121,10 @@ class DemoContentSeeder extends Seeder
                     $usersByRole[UserRole::KITCHEN->value][] = $kitchen;
                 }
 
-                // 1 cashier
+                // 1 Cashier
                 $cashier = User::create([
                     'restaurant_id' => $restaurant->id,
-                    'name'          => "Cashier " . Str::title(Str::before($restaurant->slug, '-')),
+                    'name'          => "Cashier Main",
                     'email'         => $restaurant->slug . "+cashier@example.com",
                     'password'      => 'Password!234',
                     'role'          => UserRole::CASHIER,
@@ -131,46 +132,47 @@ class DemoContentSeeder extends Seeder
                 $usersByRole[UserRole::CASHIER->value][] = $cashier;
 
                 /* ------------------------------------------------------
-                 | 3. Floor plans & tables
+                 | 3. Floor plans & Tables
                  |-------------------------------------------------------*/
                 $plansSeed = [
-                    ['name' => 'Main Hall',   'status' => FloorPlanStatus::ACTIVE],
-                    ['name' => 'Terrace',     'status' => FloorPlanStatus::ACTIVE],
-                    ['name' => 'VIP Lounge',  'status' => FloorPlanStatus::INACTIVE],
+                    ['name' => 'Dining Room',   'status' => FloorPlanStatus::ACTIVE],
+                    ['name' => 'Patio',         'status' => FloorPlanStatus::ACTIVE],
+                    ['name' => 'Bar Area',      'status' => FloorPlanStatus::ACTIVE],
                 ];
 
                 $tables = [];
 
                 foreach ($plansSeed as $pIndex => $pData) {
-                    /** @var FloorPlan $plan */
                     $plan = FloorPlan::create([
                         'restaurant_id' => $restaurant->id,
                         'name'          => $pData['name'],
                         'status'        => $pData['status'],
                     ]);
 
-                    $tableCount = $pIndex === 0 ? 8 : 4; // more tables in main hall
+                    // Vary table count per floor plan
+                    $tableCount = match($pIndex) {
+                        0 => 12, // Dining
+                        1 => 6,  // Patio
+                        2 => 5,  // Bar
+                        default => 5
+                    };
 
                     for ($i = 1; $i <= $tableCount; $i++) {
                         $statusPool = [
-                            TableStatus::FREE,
-                            TableStatus::FREE,
+                            TableStatus::FREE, TableStatus::FREE, TableStatus::FREE,
                             TableStatus::OCCUPIED,
                             TableStatus::RESERVED,
                             TableStatus::NEEDS_CLEANING,
                         ];
 
-                        /** @var TableStatus $tStatus */
-                        $tStatus = $pick($statusPool);
-
                         $table = Table::create([
                             'restaurant_id' => $restaurant->id,
                             'floor_plan_id' => $plan->id,
-                            'name'          => "{$plan->name} T{$i}",
-                            'code'          => strtoupper(Str::substr($plan->name, 0, 2)) . '-' . $restaurant->id . '-' . $i,
+                            'name'          => "{$plan->name} {$i}",
+                            'code'          => strtoupper(Str::substr($plan->name, 0, 2)) . $i,
                             'capacity'      => $num(2, 6),
                             'qr_token'      => Str::uuid()->toString(),
-                            'status'        => $tStatus,
+                            'status'        => $pick($statusPool),
                         ]);
 
                         $tables[] = $table;
@@ -178,70 +180,102 @@ class DemoContentSeeder extends Seeder
                 }
 
                 /* ------------------------------------------------------
-                 | 4. Categories & products
+                 | 4. Extensive Menu (Categories & Products) - EURO Prices
                  |-------------------------------------------------------*/
-                $categoriesSeed = [
-                    'Breakfast',
-                    'Starters',
-                    'Mains',
-                    'Desserts',
-                    'Drinks',
-                ];
-
-                $productsByCategoryName = [
-                    'Breakfast' => [
-                        ['name' => 'English Breakfast',  'price' => 950],
-                        ['name' => 'Pancakes & Syrup',   'price' => 600],
-                        ['name' => 'Avocado Toast',      'price' => 750],
-                    ],
+                $menuData = [
                     'Starters' => [
-                        ['name' => 'Tomato Soup',        'price' => 450],
-                        ['name' => 'Chicken Wings',      'price' => 800],
-                        ['name' => 'Bruschetta',         'price' => 550],
+                        ['name' => 'Beef Carpaccio',        'price' => 14.50],
+                        ['name' => 'French Onion Soup',     'price' => 9.00],
+                        ['name' => 'Burrata & Tomato',      'price' => 13.00],
+                        ['name' => 'Garlic Prawns',         'price' => 12.50],
+                        ['name' => 'Bruschetta Trio',       'price' => 8.50],
+                        ['name' => 'Calamari Fritti',       'price' => 11.00],
+                    ],
+                    'Salads' => [
+                        ['name' => 'Caesar Salad',          'price' => 12.00],
+                        ['name' => 'Niçoise Salad',         'price' => 14.00],
+                        ['name' => 'Goat Cheese Salad',     'price' => 13.50],
+                        ['name' => 'Greek Salad',           'price' => 11.50],
+                    ],
+                    'Pasta & Risotto' => [
+                        ['name' => 'Truffle Tagliatelle',   'price' => 19.00],
+                        ['name' => 'Spaghetti Carbonara',   'price' => 15.50],
+                        ['name' => 'Seafood Risotto',       'price' => 21.00],
+                        ['name' => 'Penne Arrabbiata',      'price' => 13.00],
+                        ['name' => 'Lasagna Bolognese',     'price' => 16.00],
                     ],
                     'Mains' => [
-                        ['name' => 'Grilled Beef Steak', 'price' => 1600],
-                        ['name' => 'Chicken Burger',     'price' => 900],
-                        ['name' => 'Margherita Pizza',   'price' => 1100],
-                        ['name' => 'Seafood Pasta',      'price' => 1400],
+                        ['name' => 'Ribeye Steak (300g)',   'price' => 29.00],
+                        ['name' => 'Duck Confit',           'price' => 22.50],
+                        ['name' => 'Grilled Salmon',        'price' => 24.00],
+                        ['name' => 'Chicken Supreme',       'price' => 18.50],
+                        ['name' => 'Lamb Chops',            'price' => 26.00],
+                        ['name' => 'Beef Burger & Fries',   'price' => 17.50],
+                    ],
+                    'Pizza' => [
+                        ['name' => 'Margherita',            'price' => 10.00],
+                        ['name' => 'Pepperoni',             'price' => 12.50],
+                        ['name' => 'Quattro Formaggi',      'price' => 13.50],
+                        ['name' => 'Parma Ham & Rocket',    'price' => 15.00],
+                        ['name' => 'Vegetariana',           'price' => 12.00],
+                    ],
+                    'Sides' => [
+                        ['name' => 'French Fries',          'price' => 4.50],
+                        ['name' => 'Truffle Mash',          'price' => 6.00],
+                        ['name' => 'Roasted Vegetables',    'price' => 5.50],
+                        ['name' => 'Green Salad',           'price' => 4.00],
                     ],
                     'Desserts' => [
-                        ['name' => 'Chocolate Lava Cake','price' => 650],
-                        ['name' => 'Cheesecake',         'price' => 600],
-                        ['name' => 'Fruit Salad',        'price' => 450],
+                        ['name' => 'Tiramisu',              'price' => 8.00],
+                        ['name' => 'Crème Brûlée',          'price' => 8.50],
+                        ['name' => 'Chocolate Fondant',     'price' => 9.00],
+                        ['name' => 'Lemon Tart',            'price' => 7.50],
+                        ['name' => 'Gelato (3 Scoops)',     'price' => 6.50],
                     ],
                     'Drinks' => [
-                        ['name' => 'Espresso',           'price' => 250],
-                        ['name' => 'Cappuccino',         'price' => 350],
-                        ['name' => 'Fresh Juice',        'price' => 400],
-                        ['name' => 'Soda',               'price' => 200],
-                        ['name' => 'House Cocktail',     'price' => 800],
+                        ['name' => 'Still Water (75cl)',    'price' => 4.50],
+                        ['name' => 'Sparkling Water',       'price' => 4.50],
+                        ['name' => 'Coca Cola',             'price' => 3.50],
+                        ['name' => 'Lemonade',              'price' => 4.00],
+                        ['name' => 'Fresh Orange Juice',    'price' => 5.00],
                     ],
+                    'Alcohol' => [
+                        ['name' => 'House Red (Glass)',     'price' => 6.50],
+                        ['name' => 'House White (Glass)',   'price' => 6.50],
+                        ['name' => 'Prosecco (Glass)',      'price' => 7.50],
+                        ['name' => 'Local Draft Beer',      'price' => 5.50],
+                        ['name' => 'Aperol Spritz',         'price' => 9.00],
+                        ['name' => 'Gin & Tonic',           'price' => 10.00],
+                    ],
+                    'Coffee' => [
+                        ['name' => 'Espresso',              'price' => 2.50],
+                        ['name' => 'Double Espresso',       'price' => 3.50],
+                        ['name' => 'Cappuccino',            'price' => 4.00],
+                        ['name' => 'Latte Macchiato',       'price' => 4.20],
+                        ['name' => 'Irish Coffee',          'price' => 8.50],
+                    ]
                 ];
 
                 $products = [];
+                $pos = 1;
 
-                foreach ($categoriesSeed as $pos => $catName) {
-                    /** @var Category $category */
+                foreach ($menuData as $catName => $items) {
                     $category = Category::create([
                         'restaurant_id' => $restaurant->id,
                         'name'          => $catName,
-                        'description'   => $catName . ' menu',
-                        'position'      => $pos + 1,
+                        'description'   => "Selection of " . strtolower($catName),
+                        'position'      => $pos++,
                     ]);
 
-                    foreach ($productsByCategoryName[$catName] as $pSeed) {
-                        $product = Product::create([
+                    foreach ($items as $item) {
+                        $products[] = Product::create([
                             'restaurant_id' => $restaurant->id,
                             'category_id'   => $category->id,
-                            'name'          => $pSeed['name'],
-                            'description'   => $catName . ' - ' . $pSeed['name'],
-                            'price'         => $pSeed['price'],
+                            'name'          => $item['name'],
+                            'description'   => $item['name'] . " prepared with fresh ingredients.",
+                            'price'         => $item['price'],
                             'is_available'  => true,
-                            'image_path'    => null,
                         ]);
-
-                        $products[] = $product;
                     }
                 }
 
@@ -249,90 +283,68 @@ class DemoContentSeeder extends Seeder
                  | 5. Clients
                  |-------------------------------------------------------*/
                 $clientsSeed = [
-                    ['name' => 'John Doe',        'email' => 'john.doe@example.com',       'phone' => '+254700000001'],
-                    ['name' => 'Jane Smith',      'email' => 'jane.smith@example.com',     'phone' => '+254700000002'],
-                    ['name' => 'Alex Mwangi',     'email' => 'alex.mwangi@example.com',    'phone' => '+254700000003'],
-                    ['name' => 'Maria Fernandes', 'email' => 'maria.fernandes@example.com','phone' => '+254700000004'],
+                    ['name' => 'Jean Dupont',     'email' => 'jean@example.com',    'phone' => '+33612345678'],
+                    ['name' => 'Marie Curie',     'email' => 'marie@example.com',   'phone' => '+33687654321'],
+                    ['name' => 'Lucas Martin',    'email' => 'lucas@example.com',   'phone' => '+33611223344'],
+                    ['name' => 'Sarah Bernard',   'email' => 'sarah@example.com',   'phone' => '+33699887766'],
+                    ['name' => 'Thomas Petit',    'email' => 'thomas@example.com',  'phone' => '+33655443322'],
                 ];
 
                 $clients = [];
-
                 foreach ($clientsSeed as $idx => $cSeed) {
-                    $client = Client::create([
+                    $clients[] = Client::create([
                         'restaurant_id' => $restaurant->id,
                         'name'          => $cSeed['name'],
                         'email'         => $cSeed['email'],
                         'phone'         => $cSeed['phone'],
-                        'external_id'   => 'CL-' . $restaurant->id . '-' . ($idx + 1),
+                        'external_id'   => 'CL-' . ($idx + 1),
                     ]);
-
-                    $clients[] = $client;
                 }
 
                 /* ------------------------------------------------------
-                 | 6. Orders, items, transactions, reviews
+                 | 6. Realistic Orders (Last 7 Days)
                  |-------------------------------------------------------*/
                 $waiters  = $usersByRole[UserRole::WAITER->value] ?? [];
                 $cashiers = $usersByRole[UserRole::CASHIER->value] ?? [];
 
-                if (empty($waiters) || empty($cashiers) || empty($products) || empty($tables)) {
-                    // not enough data to build realistic orders
-                    continue;
-                }
+                if (empty($waiters) || empty($cashiers) || empty($products) || empty($tables)) continue;
 
-                // Bias: more completed/served/PREPARING than cancelled/pending
-                $orderStatusPool = [
-                    OrderStatus::COMPLETED,
-                    OrderStatus::COMPLETED,
-                    OrderStatus::SERVED,
-                    OrderStatus::SERVED,
-                    OrderStatus::PREPARING,
-                    OrderStatus::READY,
-                    OrderStatus::PENDING,
-                    OrderStatus::CANCELLED,
-                ];
-
-                $commentSamples = [
-                    'Everything was great!',
-                    'Service was a bit slow, but food was good.',
-                    'Absolutely loved it, will come back.',
-                    'Food was okay, but drinks were excellent.',
-                    'Amazing experience, highly recommended.',
-                ];
-
-                $orderCount = 25;
+                $orderCount = 40;
 
                 for ($i = 1; $i <= $orderCount; $i++) {
-                    /** @var Table $table */
                     $table  = $pick($tables);
-                    /** @var User $waiter */
                     $waiter = $pick($waiters);
-                    /** @var Client|null $client */
-                    $client = $num(0, 100) < 70 ? $pick($clients) : null; // 70% have known client
+                    $client = $num(0, 100) < 40 ? $pick($clients) : null;
 
-                    /** @var OrderStatus $oStatus */
-                    $oStatus = $pick($orderStatusPool);
-
-                    // time window in last 5 days
-                    $openedAt = $now->copy()->subDays($num(0, 5))->subMinutes($num(5, 240));
-                    $closedAt = in_array($oStatus, [
-                        OrderStatus::COMPLETED,
-                        OrderStatus::SERVED,
+                    // Status distribution
+                    $oStatus = $pick([
+                        OrderStatus::COMPLETED, OrderStatus::COMPLETED, OrderStatus::COMPLETED,
+                        OrderStatus::SERVED, OrderStatus::SERVED,
+                        OrderStatus::PREPARING,
                         OrderStatus::READY,
+                        OrderStatus::PENDING,
                         OrderStatus::CANCELLED,
-                    ], true)
-                        ? $openedAt->copy()->addMinutes($num(10, 120))
+                    ]);
+
+                    // Spread orders over last 7 days + today
+                    $openedAt = $now->copy()->subDays($num(0, 6))->setHour($num(11, 22))->setMinute($num(0, 59));
+
+                    // If status is 'active', bring time closer to now
+                    if (in_array($oStatus, [OrderStatus::PENDING, OrderStatus::PREPARING, OrderStatus::READY])) {
+                        $openedAt = $now->copy()->subMinutes($num(5, 60));
+                    }
+
+                    $closedAt = in_array($oStatus, [OrderStatus::COMPLETED, OrderStatus::CANCELLED], true)
+                        ? $openedAt->copy()->addMinutes($num(30, 90))
                         : null;
 
-                    // Create order with temporary zeros for amounts, will update later
-                    /** @var Order $order */
                     $order = Order::create([
                         'restaurant_id'   => $restaurant->id,
                         'table_id'        => $table->id,
                         'client_id'       => $client?->id,
                         'waiter_id'       => $waiter->id,
                         'status'          => $oStatus,
-                        'source'          => $num(0, 100) < 20 ? 'online' : 'dine_in',
+                        'source'          => 'dine_in',
                         'subtotal'        => 0,
                         'tax_amount'      => 0,
                         'service_charge'  => 0,
@@ -344,31 +356,25 @@ class DemoContentSeeder extends Seeder
                         'closed_at'       => $closedAt,
                     ]);
 
-                    /* ----------------- Order items --------------------*/
-                    $itemsCount  = $num(2, 5);
-                    $subtotal    = 0.0;
+                    /* --- Order Items --- */
+                    $itemsCount = $num(2, 6);
+                    $subtotal   = 0.0;
 
                     for ($j = 1; $j <= $itemsCount; $j++) {
                         /** @var Product $prod */
                         $prod = $pick($products);
-                        $qty  = $num(1, 3);
+                        $qty  = $num(1, 2);
                         $unit = $prod->price;
                         $line = $qty * $unit;
 
                         $subtotal += $line;
 
-                        // item status somewhat aligned with order status
-                        $itemStatusPool = match ($oStatus) {
-                            OrderStatus::PENDING     => [OrderItemStatus::PENDING],
-                            OrderStatus::PREPARING => [OrderItemStatus::COOKING, OrderItemStatus::PENDING],
-                            OrderStatus::READY       => [OrderItemStatus::READY, OrderItemStatus::COOKING],
-                            OrderStatus::SERVED,
-                            OrderStatus::COMPLETED   => [OrderItemStatus::SERVED, OrderItemStatus::READY],
-                            OrderStatus::CANCELLED   => [OrderItemStatus::CANCELLED],
-                        };
-
-                        /** @var OrderItemStatus $itemStatus */
-                        $itemStatus = $pick($itemStatusPool);
+                        // Item status logic based on order
+                        $itemStatus = OrderItemStatus::SERVED;
+                        if ($oStatus === OrderStatus::PENDING) $itemStatus = OrderItemStatus::PENDING;
+                        if ($oStatus === OrderStatus::PREPARING) $itemStatus = $pick([OrderItemStatus::COOKING, OrderItemStatus::PENDING]);
+                        if ($oStatus === OrderStatus::READY) $itemStatus = OrderItemStatus::READY;
+                        if ($oStatus === OrderStatus::CANCELLED) $itemStatus = OrderItemStatus::CANCELLED;
 
                         OrderItem::create([
                             'order_id'    => $order->id,
@@ -377,121 +383,50 @@ class DemoContentSeeder extends Seeder
                             'unit_price'  => $unit,
                             'total_price' => $line,
                             'status'      => $itemStatus,
-                            'notes'       => $num(0, 100) < 20 ? 'No onions, please.' : null,
+                            'notes'       => $num(0, 100) < 10 ? 'Sauce on side' : null,
                         ]);
                     }
 
                     $taxAmount     = round($subtotal * $restaurant->tax_rate, 2);
                     $serviceCharge = round($subtotal * $restaurant->service_charge_rate, 2);
-                    $discount      = $num(0, 100) < 15 ? round($subtotal * 0.05, 2) : 0.0;
+                    $discount      = 0.0; // Keep simple
                     $total         = $subtotal + $taxAmount + $serviceCharge - $discount;
 
-                    // Payment status logic
-                    /** @var PaymentStatus $paymentStatus */
+                    // Payment logic
                     $paymentStatus = PaymentStatus::UNPAID;
                     $paidAmount    = 0.0;
 
-                    if (in_array($oStatus, [OrderStatus::COMPLETED, OrderStatus::SERVED], true)) {
-                        $paymentStatusPool = [
-                            PaymentStatus::PAID,
-                            PaymentStatus::PAID,
-                            PaymentStatus::PARTIAL,
-                            PaymentStatus::REFUNDED,
-                        ];
-                        $paymentStatus = $pick($paymentStatusPool);
-
-                        if ($paymentStatus === PaymentStatus::PAID) {
-                            $paidAmount = $total;
-                        } elseif ($paymentStatus === PaymentStatus::PARTIAL) {
-                            $paidAmount = round($total * (mt_rand(30, 80) / 100), 2);
-                        } elseif ($paymentStatus === PaymentStatus::REFUNDED) {
-                            $paidAmount = 0.0;
-                        }
-                    } elseif ($oStatus === OrderStatus::READY || $oStatus === OrderStatus::PREPARING) {
-                        // sometimes partially paid even before completion
+                    if ($oStatus === OrderStatus::COMPLETED) {
+                        $paymentStatus = PaymentStatus::PAID;
+                        $paidAmount    = $total;
+                    } elseif ($oStatus === OrderStatus::SERVED) {
+                        // Some served people have paid, some haven't
                         if ($num(0, 100) < 20) {
-                            $paymentStatus = PaymentStatus::PARTIAL;
-                            $paidAmount    = round($total * 0.3, 2);
+                            $paymentStatus = PaymentStatus::PAID;
+                            $paidAmount    = $total;
                         }
                     }
 
-                    // Update order totals & payment info
                     $order->update([
                         'subtotal'        => $subtotal,
                         'tax_amount'      => $taxAmount,
                         'service_charge'  => $serviceCharge,
-                        'discount_amount' => $discount,
                         'total'           => $total,
                         'paid_amount'     => $paidAmount,
                         'payment_status'  => $paymentStatus,
                     ]);
 
-                    /* ----------------- Transactions -------------------*/
-                    if ($paymentStatus !== PaymentStatus::UNPAID) {
-                        /** @var User $cashierUser */
+                    // Transactions
+                    if ($paymentStatus === PaymentStatus::PAID) {
                         $cashierUser = $pick($cashiers);
-
-                        // handle partial / paid / refunded
-                        if ($paymentStatus === PaymentStatus::PAID) {
-                            $amount = $total;
-                            $method = $pick([
-                                PaymentMethod::CASH,
-                                PaymentMethod::CARD,
-                                PaymentMethod::MOBILE,
-                            ]);
-
-                            Transaction::create([
-                                'order_id'     => $order->id,
-                                'processed_by' => $cashierUser->id,
-                                'amount'       => $amount,
-                                'method'       => $method,
-                                'status'       => PaymentStatus::PAID,
-                                'reference'    => strtoupper($restaurant->settings['ticket_prefix']) . 'TX-' . $order->id,
-                                'paid_at'      => $closedAt ?? $openedAt->copy()->addMinutes($num(5, 60)),
-                            ]);
-                        } elseif ($paymentStatus === PaymentStatus::PARTIAL) {
-                            $amount = $paidAmount;
-                            $method = $pick([
-                                PaymentMethod::CASH,
-                                PaymentMethod::CARD,
-                                PaymentMethod::MOBILE,
-                            ]);
-
-                            Transaction::create([
-                                'order_id'     => $order->id,
-                                'processed_by' => $cashierUser->id,
-                                'amount'       => $amount,
-                                'method'       => $method,
-                                'status'       => PaymentStatus::PARTIAL,
-                                'reference'    => strtoupper($restaurant->settings['ticket_prefix']) . 'TX-P-' . $order->id,
-                                'paid_at'      => $openedAt->copy()->addMinutes($num(3, 45)),
-                            ]);
-                        } elseif ($paymentStatus === PaymentStatus::REFUNDED) {
-                            $amount = $total;
-
-                            Transaction::create([
-                                'order_id'     => $order->id,
-                                'processed_by' => $cashierUser->id,
-                                'amount'       => $amount,
-                                'method'       => PaymentMethod::CARD,
-                                'status'       => PaymentStatus::REFUNDED,
-                                'reference'    => strtoupper($restaurant->settings['ticket_prefix']) . 'TX-R-' . $order->id,
-                                'paid_at'      => $closedAt ?? $openedAt->copy()->addMinutes($num(10, 90)),
-                            ]);
-                        }
-                    }
-
-                    /* ----------------- Reviews ------------------------*/
-                    if (in_array($oStatus, [OrderStatus::COMPLETED, OrderStatus::SERVED], true)
-                        && $client
-                        && $num(0, 100) < 60 // 60% of completed orders get reviews
-                    ) {
-                        Review::create([
-                            'restaurant_id' => $restaurant->id,
-                            'order_id'      => $order->id,
-                            'client_id'     => $client->id,
-                            'rating'        => $num(3, 5),
-                            'comment'       => $pick($commentSamples),
+                        Transaction::create([
+                            'order_id'     => $order->id,
+                            'processed_by' => $cashierUser->id,
+                            'amount'       => $total,
+                            'method'       => $pick([PaymentMethod::CARD, PaymentMethod::CASH]),
+                            'status'       => PaymentStatus::PAID,
+                            'reference'    => strtoupper($restaurant->settings['ticket_prefix'] ?? 'TX') . '-' . $order->id,
+                            'paid_at'      => $closedAt ?? $now,
                         ]);
                     }
                 }
