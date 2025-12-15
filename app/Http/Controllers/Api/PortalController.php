@@ -248,7 +248,7 @@ class PortalController extends Controller
                     ])->save();
                 }
 
-                $existingItems = $isUpdate ? $order->items : collect();
+                $existingItems = $isUpdate ? $order->items->keyBy('id') : collect();
                 $runningTotal  = 0;
 
                 // B. Sync Items (Upsert Logic)
@@ -261,7 +261,7 @@ class PortalController extends Controller
 
                     if ($orderItemId) {
                         // UPDATE existing item
-                        $existingItem = $existingItems->find($orderItemId);
+                        $existingItem = $existingItems->get($orderItemId);
 
                         if ($existingItem) {
                             if ($existingItem->status !== OrderItemStatus::PENDING && $qty < $existingItem->quantity) {
