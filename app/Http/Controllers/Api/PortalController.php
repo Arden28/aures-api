@@ -321,7 +321,15 @@ class PortalController extends Controller
                 event(new OrderCreated($order));
             }
 
-            return response()->json(['success' => true, 'order_id' => $order->id]);
+            // return response()->json(['success' => true, 'order_id' => $order->id]);
+
+            return response()->json([
+                'session_id'    => $session->id, // NEW: Return the session ID
+                'order_id'      => $order->id,
+                'status'        => $order->status,
+                'estimatedTime' => '15-20 mins',
+                'timestamp'     => now()->timestamp * 1000,
+            ]);
 
         } catch (Throwable $e) {
             report($e);
