@@ -9,8 +9,10 @@ use App\Http\Requests\Table\UpdateTableRequest;
 use App\Http\Resources\TableResource;
 use App\Models\FloorPlan;
 use App\Models\Table;
+use App\Models\TableSession;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class TableController extends Controller
@@ -163,6 +165,55 @@ class TableController extends Controller
         return response()->json([
             'message' => 'Table deleted successfully.',
         ]);
+    }
+
+
+    /**
+     * POST /api/v1/tables/{code}/session/{sessionId}/close
+     * * Closes the table session (Checkout).
+     */
+    public function closeSession(string $code, string $sessionId): JsonResponse
+    {
+        $table   = Table::where('code', $code)->firstOrFail();
+        $session = TableSession::where('id', $sessionId)
+            ->where('table_id', $table->id)
+            ->firstOrFail();
+
+        // 1. Validation: Check for Unpaid Orders
+        // We cannot close if there is money owed.
+        $unpaidOrders = $session->orders()
+            ->where('payment_status', '!=', 'paid')
+            ->where('status', '!=', 'cancelled')
+            ->exists();
+
+        if ($unpaidOrders) {
+            return response()->json([
+                'message' => 'Cannot close session. There are unpaid orders.'
+            ], 422);
+        }
+
+        // 2. Validation: Check for Active Pipeline Orders
+        // (Optional: You might want to allow closing "served" items, but definitely not "pending" or "cooking")
+        $activePipeline = $session->orders()
+            ->whereIn('status', ['pending', 'preparing', 'ready'])
+            ->exists();
+
+        if ($activePipeline) {
+             return response()->json([
+                'message' => 'Cannot close session. Some orders are still being prepared.'
+            ], 422);
+        }
+
+        DB::transaction(function () use ($session, $table) {
+            $session->update([
+                'status'    => 'closed',
+                'closed_at' => now()
+            ]);
+
+            $table->update(['status' => 'needs_cleaning']);
+        });
+
+        return response()->json(['message' => 'Session closed successfully.']);
     }
 
     protected function authorizeRestaurant(Request $request, Table $table): void

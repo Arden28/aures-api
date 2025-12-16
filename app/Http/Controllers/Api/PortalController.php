@@ -201,6 +201,31 @@ class PortalController extends Controller
             ->where('table_id', $table->id)
             ->firstOrFail();
 
+        // 1. Validation: Check for Unpaid Orders
+        // We cannot close if there is money owed.
+        $unpaidOrders = $session->orders()
+            ->where('payment_status', '!=', 'paid')
+            ->where('status', '!=', 'cancelled')
+            ->exists();
+
+        if ($unpaidOrders) {
+            return response()->json([
+                'message' => 'Cannot close session. There are unpaid orders.'
+            ], 422);
+        }
+
+        // 2. Validation: Check for Active Pipeline Orders
+        // (Optional: You might want to allow closing "served" items, but definitely not "pending" or "cooking")
+        $activePipeline = $session->orders()
+            ->whereIn('status', ['pending', 'preparing', 'ready'])
+            ->exists();
+
+        if ($activePipeline) {
+             return response()->json([
+                'message' => 'Cannot close session. Some orders are still being prepared.'
+            ], 422);
+        }
+
         DB::transaction(function () use ($session, $table) {
             $session->update([
                 'status'    => 'closed',
@@ -208,14 +233,6 @@ class PortalController extends Controller
             ]);
 
             $table->update(['status' => 'needs_cleaning']);
-
-            // Auto-settle unpaid orders (Simulation for "Pay at Counter" flow)
-            $session->orders()
-                ->where('payment_status', '!=', PaymentStatus::PAID)
-                ->update([
-                    'payment_status' => PaymentStatus::PAID,
-                    'paid_amount'    => DB::raw('total')
-                ]);
         });
 
         return response()->json(['message' => 'Session closed successfully.']);

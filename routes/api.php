@@ -183,6 +183,9 @@ Route::prefix('v1')->group(function () {
         Route::patch('tables/{table}/status', [TableController::class, 'updateStatus'])
             ->name('tables.update-status');
 
+        // Table session close endpoint
+        Route::post('/tables/{code}/session/{sessionId}/close', [TableController::class, 'closeSession']);
+
         /*
         |--------------------------------------------------------------------------
         | Clients
