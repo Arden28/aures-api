@@ -13,6 +13,7 @@ use App\Models\Transaction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class TransactionController extends Controller
 {
@@ -36,90 +37,114 @@ class TransactionController extends Controller
     /**
      * Create a transaction and update the order payment fields.
      */
-public function store(Request $request): JsonResponse
+    public function store(Request $request): JsonResponse
     {
         $user = $request->user();
 
-        // Custom validation to allow either order_id OR table_session_id
         $request->validate([
             'amount'           => 'required|numeric|min:0.01',
             'method'           => 'required|string',
-            'order_id'         => 'nullable|exists:orders,id',
+            // New: Support array of IDs for grouped takeout payments
+            'order_ids'        => 'nullable|array',
+            'order_ids.*'      => 'exists:orders,id',
             'table_session_id' => 'nullable|exists:table_sessions,id',
         ]);
 
         return DB::transaction(function () use ($request, $user) {
 
-            // 1. Resolve the Scope (Single Order vs Global Session)
+            // 1. Resolve Scope & Lock Rows (Prevent double payment)
             $ordersToSettle = collect();
-            $referenceOrder = null; // We need one order to link the transaction to (for DB constraints)
+            $session = null;
 
             if ($request->filled('table_session_id')) {
-                // Fetch all UNPAID orders in this session
-                $session = TableSession::with('orders')
-                    ->where('id', $request->table_session_id)
+                // SCENARIO A: Table Session (Pay everything at the table)
+                $session = TableSession::where('id', $request->table_session_id)
+                    ->lockForUpdate() // <--- Critical for concurrency
                     ->firstOrFail();
 
-                $ordersToSettle = $session->orders()
-                    ->where('payment_status', '!=', PaymentStatus::PAID)
-                    ->where('status', '!=', OrderStatus::CANCELLED)
-                    ->get();
+                if ($session->status === 'closed') {
+                    throw ValidationException::withMessages(['table_session_id' => 'This session is already closed.']);
+                }
 
-                // Use the latest order as the primary reference for the transaction record
-                $referenceOrder = $ordersToSettle->last();
-            } elseif ($request->filled('order_id')) {
-                $referenceOrder = Order::findOrFail($request->order_id);
-                $ordersToSettle->push($referenceOrder);
-            } else {
-                abort(422, 'Either order_id or table_session_id is required.');
+                $ordersToSettle = $session->orders()
+                    ->where('payment_status', '!=', 'paid')
+                    ->where('status', '!=', 'cancelled')
+                    ->lockForUpdate()
+                    ->get();
+            }
+            elseif ($request->filled('order_ids')) {
+                // SCENARIO B: Grouped Takeout (Specific list of orders)
+                $ordersToSettle = Order::whereIn('id', $request->order_ids)
+                    ->where('payment_status', '!=', 'paid')
+                    ->lockForUpdate()
+                    ->get();
             }
 
             if ($ordersToSettle->isEmpty()) {
                 abort(422, 'No unpaid orders found to settle.');
             }
 
-            // 2. Create the Financial Transaction
-            // We link it to the reference order, but logically it covers the session
-            $transaction = Transaction::create([
-                'order_id'      => $referenceOrder->id,
-                'processed_by'  => $user->id,
-                'amount'        => $request->amount,
-                'method'        => $request->input('method'),
-                'status'        => PaymentStatus::PAID,
-                'reference'     => $request->reference ?? null,
-                'paid_at'       => now(),
-                'table_session_id' => $request->table_session_id
-                // If you have a 'table_session_id' column in transactions table, add it here:
-            ]);
+            // 2. Validate Financials
+            // ensure the payment covers the total.
+            // (Optional: You can allow partials here, but for "Closing" we expect full)
+            $totalDue = $ordersToSettle->sum('total');
 
-            // 3. Distribute Payment / Close Orders
-            // In a simple full-payment scenario, we mark everything as PAID.
-            // (Complex partial logic omitted for brevity, assuming full payment for now)
-            foreach ($ordersToSettle as $order) {
-                $order->update([
-                    'payment_status' => PaymentStatus::PAID,
-                    'paid_amount'    => $order->total, // Assume full coverage
-                    // If the order was just "Served", strictly speaking, paying for it often completes it
-                    'status'         => $order->status === OrderStatus::SERVED ? OrderStatus::COMPLETED : $order->status
-                ]);
+            // Allow a small float margin of error or exact match.
+            // If providing change, $request->amount might be higher.
+            if ($request->amount < $totalDue) {
+                // Optional: throw error or mark as 'partial'
+                // abort(422, "Insufficient amount. Total due is {$totalDue}");
             }
 
-            // 4. If this was a Session payment, Close the Session
-            if ($request->filled('table_session_id')) {
-                 $session->update([
-                    'status' => 'closed',
-                    'closed_at' => now()
-                 ]);
+            // 3. Create Transaction Record
+            // We link to the session if it exists, otherwise the first order
+            $referenceOrder = $ordersToSettle->first();
 
-                 // Free up the table
-                 if($session->table) {
-                    $session->table()->update(['status' => 'needs_cleaning']); // or 'free'
-                 }
+            $transaction = Transaction::create([
+                'order_id'         => $referenceOrder->id, // Primary link
+                'table_session_id' => $session ? $session->id : null,
+                'processed_by'     => $user->id,
+                'amount'           => $request->amount,
+                'method'           => $request->input('method'),
+                'status'           => 'paid',
+                'reference'        => $request->reference ?? null, // e.g., M-Pesa Code
+                'paid_at'          => now(),
+            ]);
+
+            // 4. Update Order Statuses
+            foreach ($ordersToSettle as $order) {
+                $updateData = [
+                    'payment_status' => 'paid',
+                    'paid_amount'    => $order->total, // Allocate full amount to order
+                    'updated_at'     => now(),
+                ];
+
+                // Auto-complete workflow: If it was served/ready, it is now done.
+                if (in_array($order->status, ['served', 'ready'])) {
+                    $updateData['status'] = 'completed';
+                    $updateData['closed_at'] = now();
+                }
+
+                $order->update($updateData);
+            }
+
+            // 5. Close Session & Free Table (If applicable)
+            if ($session) {
+                $session->update([
+                    'status'    => 'closed',
+                    'closed_at' => now(),
+                ]);
+
+                if ($session->table) {
+                    // Mark table as dirty so waiters know to clean it before seating new people
+                    $session->table()->update(['status' => 'needs_cleaning']);
+                }
             }
 
             return response()->json([
-                'message'     => 'Payment recorded and session settled.',
-                'transaction' => new TransactionResource($transaction),
+                'message'     => 'Payment processed successfully.',
+                'transaction' => $transaction,
+                'orders_updated' => $ordersToSettle->count()
             ], 201);
         });
     }
