@@ -30,6 +30,7 @@ class OrderResource extends JsonResource
 
                 ];
             }),
+            'table_session_id' => $this->table_session_id,
             'client'         => $this->when($this->client, function () {
                 return [
                     'id'   => $this->client->id,
