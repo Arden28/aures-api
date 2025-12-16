@@ -184,7 +184,7 @@ Route::prefix('v1')->group(function () {
             ->name('tables.update-status');
 
         // Table session close endpoint
-        Route::post('/tables/{code}/session/{sessionId}/close', [TableController::class, 'closeSession']);
+        Route::post('/tables/{code}/sessions/{sessionId}/close', [TableController::class, 'closeSession']);
 
         /*
         |--------------------------------------------------------------------------
