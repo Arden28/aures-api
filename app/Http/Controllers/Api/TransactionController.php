@@ -161,7 +161,9 @@ class TransactionController extends Controller
                 }
 
                 $order->update($updateData);
-                $order->update('status', 'completed');
+                $order->update([
+                    'status' => 'completed'
+                ]);
             }
 
             // 5. Close Session & Free Table (If applicable)
