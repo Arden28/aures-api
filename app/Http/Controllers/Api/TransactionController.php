@@ -18,20 +18,55 @@ use Illuminate\Validation\ValidationException;
 class TransactionController extends Controller
 {
     /**
-     * List transactions for the authenticated restaurant.
+     * List transactions.
+     * Logic:
+     * 1. Scope to Restaurant.
+     * 2. Scope to TODAY (Register Shift).
+     * 3. Scope to USER (If not Manager/Owner).
      */
     public function index(Request $request): JsonResponse
     {
-        $restaurantId = $request->user()->restaurant_id;
+        $user = $request->user();
+        $restaurantId = $user->restaurant_id;
 
-        $transactions = Transaction::with(['order', 'cashier'])
+        $query = Transaction::with(['order.table', 'cashier'])
             ->whereHas('order', function ($q) use ($restaurantId) {
                 $q->where('restaurant_id', $restaurantId);
             })
-            ->latest()
-            ->paginate(20);
+            ->latest();
 
-        return response()->json(TransactionResource::collection($transactions));
+        // 1. Time Scope: Transactions from Today Only
+        // Matches OrderController logic
+        $query->whereBetween('created_at', [
+            now()->startOfDay(),
+            now()->endOfDay()
+        ]);
+
+        // 2. Role Scope: Operational users see ONLY their own drawer
+        // Owners/Managers can see the full list.
+        if ($user->role !== 'owner' && $user->role !== 'manager') {
+            $query->where('processed_by', $user->id);
+        }
+
+        // Optional: Allow frontend to force "my_transactions" view even for managers
+        if ($request->boolean('my_transactions')) {
+            $query->where('processed_by', $user->id);
+        }
+
+        // Calculate total for this filtered view (Solves pagination sum issue)
+        $totalCollected = $query->sum('amount');
+
+        $perPage = (int) $request->query('per_page', 50);
+        $transactions = $query->paginate($perPage);
+
+        // Return data with a Meta field for the total sum
+        return response()->json(
+            TransactionResource::collection($transactions)->additional([
+                'meta' => [
+                    'total_collected' => $totalCollected
+                ]
+            ])
+        );
     }
 
     /**
