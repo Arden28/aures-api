@@ -43,8 +43,8 @@ class TransactionController extends Controller
 
         $request->validate([
             'amount'           => 'required|numeric|min:0.01',
-            'method'           => 'required|string',
-            // New: Support array of IDs for grouped takeout payments
+            'method'           => 'nullable|string',
+            // Support array of IDs for grouped takeout payments
             'order_ids'        => 'nullable|array',
             'order_ids.*'      => 'exists:orders,id',
             'table_session_id' => 'nullable|exists:table_sessions,id',
@@ -105,7 +105,7 @@ class TransactionController extends Controller
                 'table_session_id' => $session ? $session->id : null,
                 'processed_by'     => $user->id,
                 'amount'           => $request->amount,
-                'method'           => $request->input('method'),
+                'method'           => $request->input('method') ?? 'cash',
                 'status'           => 'paid',
                 'reference'        => $request->reference ?? null, // e.g., M-Pesa Code
                 'paid_at'          => now(),
