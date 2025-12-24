@@ -16,6 +16,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Throwable;
@@ -27,7 +28,7 @@ class PortalController extends Controller
      * * Loads the initial state for the guest scanning the QR code.
      * Returns: Restaurant Info, Menu, and the Active Session (if any).
      */
-    public function index(string $code): JsonResponse
+    public function index(Request $request, string $code): JsonResponse
     {
         // 1. Validate Table Code
         $table = Table::where('code', $code)->with(['restaurant'])->first();
@@ -58,6 +59,20 @@ class PortalController extends Controller
             }])
             ->latest()
             ->first();
+
+        // 3. Security Check
+        // If there is an active session, and the incoming device_id doesn't match the session's device_id,
+        // BLOCK access to the session data.
+        if ($activeSession && $request->device_id) {
+            if ($activeSession->device_id !== $request->device_id) {
+                return response()->json([
+                    'message' => 'Table is currently occupied by another device.',
+                    'code'    => 'DEVICE_LOCKED',
+                    'restaurant_name' => $table->restaurant->name, // Return minimal info for the error screen
+                    'table_name' => $table->name
+                ], 403);
+            }
+        }
 
         $sessionData = null;
 
@@ -136,55 +151,84 @@ class PortalController extends Controller
      * * Creates or Updates an order for the table.
      * Uses a Transaction to ensure inventory, table status, and order consistency.
      */
-    public function store(Request $request, string $code): JsonResponse
+     public function store(Request $request, string $code): JsonResponse
     {
-        $table = Table::where('code', $code)->firstOrFail();
+        // 1. Validate Table Code
+        $table = Table::where('code', $code)->first();
 
-        $request->validate([
-            'items'                => 'required|array|min:1',
-            'items.*.product.id'   => 'required|exists:products,id',
-            'items.*.quantity'     => 'required|integer|min:1',
-            'session_id'           => 'nullable|exists:table_sessions,id',
-        ]);
-
-        // 1. Resolve Session Strategy
-        if ($request->session_id) {
-            $session = TableSession::where('id', $request->session_id)
-                ->where('table_id', $table->id)
-                ->where('status', '!=', 'closed')
-                ->firstOrFail();
-        } else {
-            // Auto-discover active session if one exists for today
-            $session = TableSession::where('table_id', $table->id)
-                ->where('status', '!=', 'closed')
-                ->where('created_at', '>=', now()->startOfDay())
-                ->latest()
-                ->first();
+        if (! $table) {
+            return response()->json(['message' => 'Invalid table code'], 404);
         }
 
-        // 2. Create Session if missing
+        $request->validate([
+            'items'            => 'required|array|min:1',
+            'items.*.product.id' => 'required|exists:products,id',
+            'items.*.quantity' => 'required|integer|min:1',
+            'session_id'       => 'nullable|exists:table_sessions,id',
+            'device_id'        => 'required|string|max:255', // Changed to required for safety
+        ]);
+
+        // ---------------------------------------------------------
+        // 1. Resolve & Lock Strategy
+        // ---------------------------------------------------------
+
+        // Find ANY active session for this table (regardless of device)
+        $existingSession = TableSession::where('table_id', $table->id)
+            ->where('status', '!=', 'closed')
+            ->latest() // In case there are multiple (legacy data), grab the newest
+            ->first();
+
+        $session = null;
+
+        if ($existingSession) {
+            // BLOCKING LOGIC: If a session exists, does it belong to this device?
+            if ($existingSession->device_id !== $request->device_id) {
+                return response()->json([
+                    'message' => 'Table is currently occupied by another device.',
+                    'code' => 'DEVICE_LOCKED'
+                ], 403);
+            }
+
+            // It matches! We can safely use this session.
+            $session = $existingSession;
+        }
+
+        // ---------------------------------------------------------
+        // 2. Create Session if none exists
+        // ---------------------------------------------------------
         if (! $session) {
+            // Optional: If user provided a session_id but we didn't find it active above,
+            // it likely means that specific session is closed.
+            if ($request->session_id) {
+                 return response()->json(['message' => 'Session is closed or invalid.'], 403);
+            }
+
             $session = TableSession::create([
                 'table_id'      => $table->id,
                 'restaurant_id' => $table->restaurant_id,
+                'device_id'     => $request->device_id, // <--- Locks the table to this ID
                 'session_code'  => Str::random(8),
                 'started_by'    => 'client',
                 'status'        => 'active',
             ]);
-        } elseif ($session->status === 'closed') {
-            return response()->json(['message' => 'Session is closed.'], 403);
         }
 
+        // ---------------------------------------------------------
         // 3. Resolve Target Order
-        // If the latest order is still PENDING, we update it (add items to cart).
-        // If it's already PREPARING/COOKING, we create a new order batch.
+        // ---------------------------------------------------------
+
+        // Update last activity timestamp
+        $session->update(['last_activity_at' => now()]);
+
+        Log::info("Active session: ", ['session_id' => $session->id, 'device_id' => $session->device_id]);
+
         /** @var Order|null $lastPendingOrder */
         $lastPendingOrder = $session->orders()
             ->where('status', OrderStatus::PENDING)
             ->latest()
             ->first();
 
-        // Use existing pending order or start fresh
+
         $orderToProcess = $lastPendingOrder ?? new Order();
 
         return $this->processOrderTransaction($orderToProcess, $request->items, $table, $session, $orderToProcess->exists);

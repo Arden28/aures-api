@@ -20,12 +20,16 @@ class TableSession extends Model
         'status',
         'opened_at',
         'closed_at',
+        'device_id',
+        'last_activity_at',
     ];
 
     protected $casts = [
         'opened_at' => 'datetime',
         'closed_at' => 'datetime',
         'status' => 'string',
+        'device_id' => 'string',
+        'last_activity_at' => 'datetime',
     ];
 
     // Relationships

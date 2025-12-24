@@ -32,6 +32,9 @@ return new class extends Migration
             $table->dateTime('opened_at')->nullable();
             $table->dateTime('closed_at')->nullable();
 
+            $table->string('device_id', 255)->nullable()->comment('Identifier for the device used to open the session');
+            $table->timestamp('last_activity_at')->nullable();
+
             $table->timestamps(); // created_at (Session Start Time), updated_at
 
             $table->index(['table_id', 'status']);
