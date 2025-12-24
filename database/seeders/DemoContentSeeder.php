@@ -304,132 +304,132 @@ class DemoContentSeeder extends Seeder
                 /* ------------------------------------------------------
                  | 6. Realistic Orders (Last 7 Days)
                  |-------------------------------------------------------*/
-                $waiters  = $usersByRole[UserRole::WAITER->value] ?? [];
-                $cashiers = $usersByRole[UserRole::CASHIER->value] ?? [];
+                // $waiters  = $usersByRole[UserRole::WAITER->value] ?? [];
+                // $cashiers = $usersByRole[UserRole::CASHIER->value] ?? [];
 
-                if (empty($waiters) || empty($cashiers) || empty($products) || empty($tables)) continue;
+                // if (empty($waiters) || empty($cashiers) || empty($products) || empty($tables)) continue;
 
-                $orderCount = 40;
+                // $orderCount = 40;
 
-                for ($i = 1; $i <= $orderCount; $i++) {
-                    $table  = $pick($tables);
-                    $waiter = $pick($waiters);
-                    $client = $num(0, 100) < 40 ? $pick($clients) : null;
+                // for ($i = 1; $i <= $orderCount; $i++) {
+                //     $table  = $pick($tables);
+                //     $waiter = $pick($waiters);
+                //     $client = $num(0, 100) < 40 ? $pick($clients) : null;
 
-                    // Status distribution
-                    $oStatus = $pick([
-                        OrderStatus::COMPLETED, OrderStatus::COMPLETED, OrderStatus::COMPLETED,
-                        OrderStatus::SERVED, OrderStatus::SERVED,
-                        OrderStatus::PREPARING,
-                        OrderStatus::READY,
-                        OrderStatus::PENDING,
-                        OrderStatus::CANCELLED,
-                    ]);
+                //     // Status distribution
+                //     $oStatus = $pick([
+                //         OrderStatus::COMPLETED, OrderStatus::COMPLETED, OrderStatus::COMPLETED,
+                //         OrderStatus::SERVED, OrderStatus::SERVED,
+                //         OrderStatus::PREPARING,
+                //         OrderStatus::READY,
+                //         OrderStatus::PENDING,
+                //         OrderStatus::CANCELLED,
+                //     ]);
 
-                    // Spread orders over last 7 days + today
-                    $openedAt = $now->copy()->subDays($num(0, 6))->setHour($num(11, 22))->setMinute($num(0, 59));
+                //     // Spread orders over last 7 days + today
+                //     $openedAt = $now->copy()->subDays($num(0, 6))->setHour($num(11, 22))->setMinute($num(0, 59));
 
-                    // If status is 'active', bring time closer to now
-                    if (in_array($oStatus, [OrderStatus::PENDING, OrderStatus::PREPARING, OrderStatus::READY])) {
-                        $openedAt = $now->copy()->subMinutes($num(5, 60));
-                    }
+                //     // If status is 'active', bring time closer to now
+                //     if (in_array($oStatus, [OrderStatus::PENDING, OrderStatus::PREPARING, OrderStatus::READY])) {
+                //         $openedAt = $now->copy()->subMinutes($num(5, 60));
+                //     }
 
-                    $closedAt = in_array($oStatus, [OrderStatus::COMPLETED, OrderStatus::CANCELLED], true)
-                        ? $openedAt->copy()->addMinutes($num(30, 90))
-                        : null;
+                //     $closedAt = in_array($oStatus, [OrderStatus::COMPLETED, OrderStatus::CANCELLED], true)
+                //         ? $openedAt->copy()->addMinutes($num(30, 90))
+                //         : null;
 
-                    $order = Order::create([
-                        'restaurant_id'   => $restaurant->id,
-                        'table_id'        => $table->id,
-                        'client_id'       => $client?->id,
-                        'waiter_id'       => $waiter->id,
-                        'status'          => $oStatus,
-                        'source'          => 'dine_in',
-                        'subtotal'        => 0,
-                        'tax_amount'      => 0,
-                        'service_charge'  => 0,
-                        'discount_amount' => 0,
-                        'total'           => 0,
-                        'paid_amount'     => 0,
-                        'payment_status'  => PaymentStatus::UNPAID,
-                        'opened_at'       => $openedAt,
-                        'closed_at'       => $closedAt,
-                    ]);
+                //     $order = Order::create([
+                //         'restaurant_id'   => $restaurant->id,
+                //         'table_id'        => $table->id,
+                //         'client_id'       => $client?->id,
+                //         'waiter_id'       => $waiter->id,
+                //         'status'          => $oStatus,
+                //         'source'          => 'dine_in',
+                //         'subtotal'        => 0,
+                //         'tax_amount'      => 0,
+                //         'service_charge'  => 0,
+                //         'discount_amount' => 0,
+                //         'total'           => 0,
+                //         'paid_amount'     => 0,
+                //         'payment_status'  => PaymentStatus::UNPAID,
+                //         'opened_at'       => $openedAt,
+                //         'closed_at'       => $closedAt,
+                //     ]);
 
-                    /* --- Order Items --- */
-                    $itemsCount = $num(2, 6);
-                    $subtotal   = 0.0;
+                //     /* --- Order Items --- */
+                //     $itemsCount = $num(2, 6);
+                //     $subtotal   = 0.0;
 
-                    for ($j = 1; $j <= $itemsCount; $j++) {
-                        /** @var Product $prod */
-                        $prod = $pick($products);
-                        $qty  = $num(1, 2);
-                        $unit = $prod->price;
-                        $line = $qty * $unit;
+                //     for ($j = 1; $j <= $itemsCount; $j++) {
+                //         /** @var Product $prod */
+                //         $prod = $pick($products);
+                //         $qty  = $num(1, 2);
+                //         $unit = $prod->price;
+                //         $line = $qty * $unit;
 
-                        $subtotal += $line;
+                //         $subtotal += $line;
 
-                        // Item status logic based on order
-                        $itemStatus = OrderItemStatus::SERVED;
-                        if ($oStatus === OrderStatus::PENDING) $itemStatus = OrderItemStatus::PENDING;
-                        if ($oStatus === OrderStatus::PREPARING) $itemStatus = $pick([OrderItemStatus::COOKING, OrderItemStatus::PENDING]);
-                        if ($oStatus === OrderStatus::READY) $itemStatus = OrderItemStatus::READY;
-                        if ($oStatus === OrderStatus::CANCELLED) $itemStatus = OrderItemStatus::CANCELLED;
+                //         // Item status logic based on order
+                //         $itemStatus = OrderItemStatus::SERVED;
+                //         if ($oStatus === OrderStatus::PENDING) $itemStatus = OrderItemStatus::PENDING;
+                //         if ($oStatus === OrderStatus::PREPARING) $itemStatus = $pick([OrderItemStatus::COOKING, OrderItemStatus::PENDING]);
+                //         if ($oStatus === OrderStatus::READY) $itemStatus = OrderItemStatus::READY;
+                //         if ($oStatus === OrderStatus::CANCELLED) $itemStatus = OrderItemStatus::CANCELLED;
 
-                        OrderItem::create([
-                            'order_id'    => $order->id,
-                            'product_id'  => $prod->id,
-                            'quantity'    => $qty,
-                            'unit_price'  => $unit,
-                            'total_price' => $line,
-                            'status'      => $itemStatus,
-                            'notes'       => $num(0, 100) < 10 ? 'Sauce on side' : null,
-                        ]);
-                    }
+                //         OrderItem::create([
+                //             'order_id'    => $order->id,
+                //             'product_id'  => $prod->id,
+                //             'quantity'    => $qty,
+                //             'unit_price'  => $unit,
+                //             'total_price' => $line,
+                //             'status'      => $itemStatus,
+                //             'notes'       => $num(0, 100) < 10 ? 'Sauce on side' : null,
+                //         ]);
+                //     }
 
-                    $taxAmount     = round($subtotal * $restaurant->tax_rate, 2);
-                    $serviceCharge = round($subtotal * $restaurant->service_charge_rate, 2);
-                    $discount      = 0.0; // Keep simple
-                    $total         = $subtotal + $taxAmount + $serviceCharge - $discount;
+                //     $taxAmount     = round($subtotal * $restaurant->tax_rate, 2);
+                //     $serviceCharge = round($subtotal * $restaurant->service_charge_rate, 2);
+                //     $discount      = 0.0; // Keep simple
+                //     $total         = $subtotal + $taxAmount + $serviceCharge - $discount;
 
-                    // Payment logic
-                    $paymentStatus = PaymentStatus::UNPAID;
-                    $paidAmount    = 0.0;
+                //     // Payment logic
+                //     $paymentStatus = PaymentStatus::UNPAID;
+                //     $paidAmount    = 0.0;
 
-                    if ($oStatus === OrderStatus::COMPLETED) {
-                        $paymentStatus = PaymentStatus::PAID;
-                        $paidAmount    = $total;
-                    } elseif ($oStatus === OrderStatus::SERVED) {
-                        // Some served people have paid, some haven't
-                        if ($num(0, 100) < 20) {
-                            $paymentStatus = PaymentStatus::PAID;
-                            $paidAmount    = $total;
-                        }
-                    }
+                //     if ($oStatus === OrderStatus::COMPLETED) {
+                //         $paymentStatus = PaymentStatus::PAID;
+                //         $paidAmount    = $total;
+                //     } elseif ($oStatus === OrderStatus::SERVED) {
+                //         // Some served people have paid, some haven't
+                //         if ($num(0, 100) < 20) {
+                //             $paymentStatus = PaymentStatus::PAID;
+                //             $paidAmount    = $total;
+                //         }
+                //     }
 
-                    $order->update([
-                        'subtotal'        => $subtotal,
-                        'tax_amount'      => $taxAmount,
-                        'service_charge'  => $serviceCharge,
-                        'total'           => $total,
-                        'paid_amount'     => $paidAmount,
-                        'payment_status'  => $paymentStatus,
-                    ]);
+                //     $order->update([
+                //         'subtotal'        => $subtotal,
+                //         'tax_amount'      => $taxAmount,
+                //         'service_charge'  => $serviceCharge,
+                //         'total'           => $total,
+                //         'paid_amount'     => $paidAmount,
+                //         'payment_status'  => $paymentStatus,
+                //     ]);
 
-                    // Transactions
-                    if ($paymentStatus === PaymentStatus::PAID) {
-                        $cashierUser = $pick($cashiers);
-                        Transaction::create([
-                            'order_id'     => $order->id,
-                            'processed_by' => $cashierUser->id,
-                            'amount'       => $total,
-                            'method'       => $pick([PaymentMethod::CARD, PaymentMethod::CASH]),
-                            'status'       => PaymentStatus::PAID,
-                            'reference'    => strtoupper($restaurant->settings['ticket_prefix'] ?? 'TX') . '-' . $order->id,
-                            'paid_at'      => $closedAt ?? $now,
-                        ]);
-                    }
-                }
+                //     // Transactions
+                //     if ($paymentStatus === PaymentStatus::PAID) {
+                //         $cashierUser = $pick($cashiers);
+                //         Transaction::create([
+                //             'order_id'     => $order->id,
+                //             'processed_by' => $cashierUser->id,
+                //             'amount'       => $total,
+                //             'method'       => $pick([PaymentMethod::CARD, PaymentMethod::CASH]),
+                //             'status'       => PaymentStatus::PAID,
+                //             'reference'    => strtoupper($restaurant->settings['ticket_prefix'] ?? 'TX') . '-' . $order->id,
+                //             'paid_at'      => $closedAt ?? $now,
+                //         ]);
+                //     }
+                // }
             }
         });
     }
