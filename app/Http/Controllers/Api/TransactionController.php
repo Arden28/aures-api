@@ -175,7 +175,7 @@ class TransactionController extends Controller
 
                 if ($session->table) {
                     // Mark table as dirty so waiters know to clean it before seating new people
-                    $session->table()->update(['status' => 'needs_cleaning']);
+                    $session->table()->update(['status' => 'free']);
                 }
             }
 
