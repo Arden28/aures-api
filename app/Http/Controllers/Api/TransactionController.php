@@ -148,25 +148,22 @@ class TransactionController extends Controller
 
             // 4. Update Order Statuses
             foreach ($ordersToSettle as $order) {
-                $updateData = [
-                    'payment_status' => 'paid',
-                    'paid_amount'    => $order->total, // Allocate full amount to order
-                    'updated_at'     => now(),
-                ];
+                // A. Set Payment Properties (In Memory)
+                $order->payment_status = PaymentStatus::PAID; // Assuming you have this Enum
+                $order->paid_amount    = $order->total;
+                $order->closed_at      = now();
+                $order->updated_at     = now();
 
-                // Auto-complete workflow: If it was served/ready, it is now done.
-                if (in_array($order->status, ['served', 'ready'])) {
-                    $updateData['status'] = 'completed';
-                    $updateData['closed_at'] = now();
-                }
+                // B. Force Status to Completed (In Memory)
+                // Your previous logic forced this update anyway, so we just set it here.
+                $order->status = OrderStatus::COMPLETED;
 
-                $order->update($updateData);
-                $order->update([
-                    'status' => 'completed'
-                ]);
-
-                // status change record
+                // C. Update History (In Memory)
+                // Now this modifies the 'statusHistory' attribute on the object
                 $order->recordStatusChange(OrderStatus::COMPLETED, $user->id);
+
+                // D. Persist EVERYTHING to DB in one single query
+                $order->save();
             }
 
             // 5. Close Session & Free Table (If applicable)
