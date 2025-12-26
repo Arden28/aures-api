@@ -312,7 +312,7 @@ class PortalController extends Controller
 
 
                 // Initiate status history
-                $order->recordStatusChange(OrderStatus::PENDING, Auth::user()->id);
+                $order->recordStatusChange(OrderStatus::PENDING);
 
 
                 $existingItems = $isUpdate ? $order->items->keyBy('id') : collect();
