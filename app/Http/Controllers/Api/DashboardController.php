@@ -149,6 +149,7 @@ class DashboardController extends Controller
                 'floor_plans'        => $floorPlans,
                 'recent_orders'      => $recentOrders,
                 'staff_performance'  => $staffPerformance,
+                'operational_efficiency' => $efficiency
             ],
         ]);
     }
