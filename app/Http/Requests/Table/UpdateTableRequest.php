@@ -24,7 +24,7 @@ class UpdateTableRequest extends FormRequest
         return [
             'name'          => ['sometimes', 'string', 'max:50'],
             'capacity'      => ['sometimes', 'integer', 'min:1'],
-            'status'        => ['sometimes', 'in:free,occupied,reserved,needs_cleaning'],
+            'status'        => ['sometimes', 'in:free,occupied,reserved,needs_cleaning,disabled'],
             'floor_plan_id' => ['sometimes', 'nullable', 'exists:floor_plans,id'],
         ];
     }
