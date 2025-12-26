@@ -15,6 +15,7 @@ use App\Models\TableSession;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -230,7 +231,7 @@ class PortalController extends Controller
 
         $orderToProcess = $lastPendingOrder ?? new Order();
 
-        return $this->processOrderTransaction($orderToProcess, $request->items, $table, $session, $orderToProcess->exists, $request->user());
+        return $this->processOrderTransaction($orderToProcess, $request->items, $table, $session, $orderToProcess->exists);
     }
 
     /**
@@ -288,12 +289,12 @@ class PortalController extends Controller
     /**
      * Atomic logic to Create or Update an Order + Items.
      */
-    private function processOrderTransaction(Order $order, array $incomingItemsData, Table $table, TableSession $session, bool $isUpdate, $user = null): JsonResponse
+    private function processOrderTransaction(Order $order, array $incomingItemsData, Table $table, TableSession $session, bool $isUpdate): JsonResponse
     {
         try {
             $incomingCollection = collect($incomingItemsData);
 
-            $order = DB::transaction(function () use ($order, $session, $table, $incomingCollection, $isUpdate, $user) {
+            $order = DB::transaction(function () use ($order, $session, $table, $incomingCollection, $isUpdate) {
                 // A. Initialize Order Header
                 if (! $isUpdate) {
                     $order->fill([
@@ -311,7 +312,7 @@ class PortalController extends Controller
 
 
                 // Initiate status history
-                $order->recordStatusChange(OrderStatus::PENDING, $user->id);
+                $order->recordStatusChange(OrderStatus::PENDING, Auth::user()->id);
 
 
                 $existingItems = $isUpdate ? $order->items->keyBy('id') : collect();
