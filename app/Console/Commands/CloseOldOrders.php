@@ -12,15 +12,11 @@ class CloseOldOrders extends Command
 {
     /**
      * The name and signature of the console command.
-     *
-     * @var string
      */
     protected $signature = 'orders:cleanup-old';
 
     /**
      * The console command description.
-     *
-     * @var string
      */
     protected $description = 'Closes all pending/active orders opened on previous days and frees their tables.';
 
@@ -34,7 +30,7 @@ class CloseOldOrders extends Command
         // 1. Define the cutoff point: Yesterday's end of day
         $yesterday = now()->subDay()->endOfDay();
 
-        // 2. Identify active order statuses that should NOT cross a day boundary
+        // 2. Identify active order statuses
         $activeStatuses = [
             OrderStatus::PENDING,
             OrderStatus::PREPARING,
@@ -42,16 +38,13 @@ class CloseOldOrders extends Command
             OrderStatus::SERVED,
         ];
 
-        // Use a transaction to ensure database consistency
         DB::transaction(function () use ($yesterday, $activeStatuses) {
 
-            // =========================================================
-            // A. CLOSE OLD ORDERS
-            // =========================================================
-
-            // Find all active orders that were opened before the end of yesterday
+            // A. Fetch orders that need closing
+            // We use lockForUpdate() to prevent conflicts if the cron overlaps or a user tries to pay at the exact same second.
             $oldActiveOrders = Order::whereIn('status', $activeStatuses)
                 ->where('opened_at', '<=', $yesterday)
+                ->lockForUpdate()
                 ->get();
 
             if ($oldActiveOrders->isEmpty()) {
@@ -59,32 +52,35 @@ class CloseOldOrders extends Command
                 return;
             }
 
-            $orderCount = $oldActiveOrders->count();
-            $this->warn("Found {$orderCount} orders opened before {$yesterday->format('Y-m-d')}. Forcing COMPLETED status.");
+            $count = $oldActiveOrders->count();
+            $this->warn("Found {$count} stale orders. Closing them now...");
 
-            $tableIdsToFree = $oldActiveOrders->pluck('table_id')->filter()->unique();
+            // B. Loop and Update (Required for statusHistory)
+            foreach ($oldActiveOrders as $order) {
+                // 1. Set Status
+                $order->status = OrderStatus::COMPLETED;
+                $order->closed_at = now();
 
-            // Mark orders as COMPLETED and set the closed_at timestamp
-            Order::whereIn('id', $oldActiveOrders->pluck('id'))
-                ->update([
-                    'status' => OrderStatus::COMPLETED,
-                    'closed_at' => now(), // Close the order now
-                ]);
+                // 2. Record History
+                // passing 'null' as user_id to indicate "System/Auto-Cleanup"
+                $order->recordStatusChange(OrderStatus::COMPLETED, null);
 
-            // =========================================================
-            // B. FREE ASSOCIATED TABLES
-            // =========================================================
+                // 3. Save (Persists both status and history)
+                $order->save();
+            }
 
-            if ($tableIdsToFree->isNotEmpty()) {
-                // Free only those tables that were associated with the closed orders
-                Table::whereIn('id', $tableIdsToFree)
+            // C. Free Associated Tables
+            $tableIds = $oldActiveOrders->pluck('table_id')->filter()->unique();
+
+            if ($tableIds->isNotEmpty()) {
+                Table::whereIn('id', $tableIds)
                     ->update(['status' => 'free']);
 
-                $this->info("Successfully freed {$tableIdsToFree->count()} associated tables.");
+                $this->info("Freed {$tableIds->count()} associated tables.");
             }
         });
 
-        $this->info('Order cleanup finished.');
+        $this->info('Order cleanup finished successfully.');
 
         return 0;
     }
