@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Enums\OrderItemStatus;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
+use App\Enums\UserRole;
 use App\Events\Order\OrderCreated;
 use App\Events\Order\OrderItemStatusUpdated;
 use App\Events\Order\OrderStatusUpdated;
@@ -45,7 +46,7 @@ class OrderController extends Controller
         // -------------------------------------------------------------
 
         // Owner/Manager sees ALL orders (no daily filter)
-        if ($user->role !== 'owner' && $user->role !== 'manager') {
+        if ($user->role !== UserRole::OWNER && $user->role !== UserRole::MANAGER) {
             // Waiter, Kitchen, etc., only see orders opened today
             $query->whereBetween('opened_at', [
                 $startOfDay,
@@ -55,7 +56,7 @@ class OrderController extends Controller
 
         // Kitchen sees items that need to be prepared/served.
         // It needs a special filter to show ONLY items in PENDING/PREPARING/READY states.
-        if ($user->role === 'kitchen') {
+        if ($user->role === UserRole::KITCHEN) {
             // REMOVED: The created_at filter is redundant and inaccurate.
             // We rely on the opened_at filter above AND the status filter below.
 
@@ -71,7 +72,7 @@ class OrderController extends Controller
         }
 
         // Waiter sees their own orders + unassigned orders opened today.
-        if ($user->role === 'waiter') {
+        if ($user->role === UserRole::WAITER) {
             // IMPROVEMENT: Combine both waiter filters correctly with a callback
             $query->where(function ($q) use ($user) {
                 $q->where('waiter_id', $user->id)
