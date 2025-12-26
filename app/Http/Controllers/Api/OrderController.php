@@ -128,6 +128,9 @@ class OrderController extends Controller
             $order->opened_at      = now();
             $order->payment_status = PaymentStatus::UNPAID;
 
+            // Initiate status history
+            $order->recordStatusChange(OrderStatus::PENDING, $user->id);
+
             $order->save();
 
             $subtotal = 0;
@@ -251,6 +254,9 @@ class OrderController extends Controller
 
             // A. Update Status
             $order->status = $newStatus;
+
+            // Record status change in history
+            $order->recordStatusChange($newStatus, $request->user()->id);
 
             // B. Set Closing Timestamp if completed/cancelled
             if (in_array($newStatus, [OrderStatus::COMPLETED, OrderStatus::CANCELLED], true)) {

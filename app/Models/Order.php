@@ -27,6 +27,7 @@ class Order extends Model
         'payment_status',
         'opened_at',
         'closed_at',
+        'statusHistory',
     ];
 
     protected $casts = [
@@ -40,6 +41,7 @@ class Order extends Model
         'paid_amount'    => 'float',
         'opened_at'      => 'datetime',
         'closed_at'      => 'datetime',
+        'statusHistory'  => 'array',
     ];
 
     public function restaurant(): BelongsTo
@@ -76,4 +78,24 @@ class Order extends Model
     {
         return $this->hasMany(Transaction::class);
     }
+
+    /**
+     * Helper to append a new status to history.
+     */
+    public function recordStatusChange(OrderStatus $newStatus, ?int $userId = null): void
+    {
+        // 1. Get existing history or initialize empty array
+        $history = $this->statusHistory ?? [];
+
+        // 2. Append new entry
+        $history[] = [
+            'status'  => $newStatus->value,
+            'at'      => now()->format("Y-m-d H:i:s"), // Standard ISO format
+            'user_id' => $userId, // Useful to know WHO changed it
+        ];
+
+        // 3. Re-assign to trigger Eloquent's dirty checking
+        $this->statusHistory = $history;
+    }
+
 }
