@@ -164,6 +164,9 @@ class TransactionController extends Controller
                 $order->update([
                     'status' => 'completed'
                 ]);
+
+                // status change record
+                $order->recordStatusChange('completed', $user->id);
             }
 
             // 5. Close Session & Free Table (If applicable)

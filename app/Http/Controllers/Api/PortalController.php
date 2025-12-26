@@ -276,7 +276,7 @@ class PortalController extends Controller
                 'closed_at' => now()
             ]);
 
-            $table->update(['status' => 'needs_cleaning']);
+            $table->update(['status' => 'free']);
         });
 
         return response()->json(['message' => 'Session closed successfully.']);
