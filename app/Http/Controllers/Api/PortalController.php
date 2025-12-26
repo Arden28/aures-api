@@ -210,6 +210,7 @@ class PortalController extends Controller
                 'session_code'  => Str::random(8),
                 'started_by'    => 'client',
                 'status'        => 'active',
+                'opened_at'      => now(),
             ]);
         }
 
@@ -219,8 +220,6 @@ class PortalController extends Controller
 
         // Update last activity timestamp
         $session->update(['last_activity_at' => now()]);
-
-        Log::info("Active session: ", ['session_id' => $session->id, 'device_id' => $session->device_id]);
 
         /** @var Order|null $lastPendingOrder */
         $lastPendingOrder = $session->orders()
