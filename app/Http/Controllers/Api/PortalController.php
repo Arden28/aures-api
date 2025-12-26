@@ -6,6 +6,7 @@ use App\Enums\OrderItemStatus;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Events\Order\OrderCreated;
+use App\Events\TableSessionClosed;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Order;
@@ -39,21 +40,18 @@ class PortalController extends Controller
         }
 
         // 2. Resolve Active Session
-        // We look for a session that is NOT closed and was created today.
         $startOfDay = now()->startOfDay();
 
         $activeSession = TableSession::where('table_id', $table->id)
             ->where('status', '!=', 'closed')
             ->where('created_at', '>=', $startOfDay)
             ->with(['orders' => function ($query) {
-                // Eager load orders relevant to the guest (Tracker View).
-                // We include COMPLETED so they can see paid history.
                 $query->whereIn('status', [
                     OrderStatus::PENDING,
                     OrderStatus::PREPARING,
                     OrderStatus::READY,
                     OrderStatus::SERVED,
-                    OrderStatus::COMPLETED // Added so paid orders don't disappear
+                    OrderStatus::COMPLETED
                 ])
                 ->with('items.product')
                 ->latest();
@@ -61,53 +59,8 @@ class PortalController extends Controller
             ->latest()
             ->first();
 
-        // 3. Security Check
-        // If there is an active session, and the incoming device_id doesn't match the session's device_id,
-        // BLOCK access to the session data.
-        if ($activeSession && $request->device_id) {
-            if ($activeSession->device_id !== $request->device_id) {
-                return response()->json([
-                    'message' => 'Table is currently occupied by another device.',
-                    'code'    => 'DEVICE_LOCKED',
-                    'restaurant_name' => $table->restaurant->name, // Return minimal info for the error screen
-                    'table_name' => $table->name
-                ], 403);
-            }
-        }
-
-        $sessionData = null;
-
-        if ($activeSession) {
-            // A. Aggregate items for the "Cart/Tab View" (Flat list of all items)
-            $allSessionItems = $activeSession->orders
-                ->flatMap(fn (Order $order) => $order->items)
-                ->map(fn (OrderItem $item) => $this->transformOrderItem($item))
-                ->values();
-
-            // B. Map distinct orders for the "Live Tracker View"
-            // Ensure ID and Status are explicitly from the ORDER, not the Session.
-            $ordersList = $activeSession->orders->map(function (Order $order) {
-                return [
-                    'id'            => $order->id,               // Order ID
-                    'status'        => $order->status->value,    // Order Status Enum Value
-                    'total'         => (float) $order->total,
-                    'items'         => $order->items->map(fn ($item) => $this->transformOrderItem($item)),
-                    'timestamp'     => $order->created_at->timestamp * 1000, // JS format
-                    'estimatedTime' => '15-20 mins', // Placeholder: Could be calculated dynamically
-                ];
-            })->values();
-
-            $sessionData = [
-                'session_id' => $activeSession->id,
-                'status'     => $activeSession->status, // Session status (e.g. 'active', 'closing')
-                'total_due'  => $activeSession->totalDue(),
-                'items'      => $allSessionItems,
-                'orders'     => $ordersList,
-            ];
-        }
-
-        // 3. Load Menu (Categories & Products)
-        // Optimized to only load what's needed for the menu display.
+        // 3. Load Menu (MOVED UP)
+        // We load this BEFORE the security check so we can pass it to the blocked screen.
         $categories = Category::where('restaurant_id', $table->restaurant_id)
             ->orderBy('position')
             ->with(['products' => fn ($query) => $query->where('is_available', true)])
@@ -130,6 +83,55 @@ class PortalController extends Controller
             ]);
         })->values();
 
+        $menuPayload = [
+            'categories' => $mappedCategories,
+            'products'   => $mappedProducts
+        ];
+
+        // 4. Security Check
+        // If blocked, we now return the MENU along with the error info.
+        if ($activeSession && $request->device_id) {
+            if ($activeSession->device_id !== $request->device_id) {
+                return response()->json([
+                    'message'         => 'Table is currently occupied by another device.',
+                    'code'            => 'DEVICE_LOCKED',
+                    'restaurant_name' => $table->restaurant->name,
+                    'table_name'      => $table->name,
+                    'currency'        => $table->restaurant->currency ?? 'EUR',
+                    'menu'            => $menuPayload // <--- PASSING THE MENU HERE
+                ], 403);
+            }
+        }
+
+        // 5. Prepare Session Data (Happy Path)
+        $sessionData = null;
+
+        if ($activeSession) {
+            $allSessionItems = $activeSession->orders
+                ->flatMap(fn (Order $order) => $order->items)
+                ->map(fn (OrderItem $item) => $this->transformOrderItem($item))
+                ->values();
+
+            $ordersList = $activeSession->orders->map(function (Order $order) {
+                return [
+                    'id'            => $order->id,
+                    'status'        => $order->status->value,
+                    'total'         => (float) $order->total,
+                    'items'         => $order->items->map(fn ($item) => $this->transformOrderItem($item)),
+                    'timestamp'     => $order->created_at->timestamp * 1000,
+                    'estimatedTime' => '15-20 mins',
+                ];
+            })->values();
+
+            $sessionData = [
+                'session_id' => $activeSession->id,
+                'status'     => $activeSession->status,
+                'total_due'  => $activeSession->totalDue(),
+                'items'      => $allSessionItems,
+                'orders'     => $ordersList,
+            ];
+        }
+
         return response()->json([
             'session' => [
                 'id'                => $table->id,
@@ -139,11 +141,8 @@ class PortalController extends Controller
                 'active_session_id' => $activeSession?->id ?? null,
                 'session_status'    => $activeSession?->status ?? 'closed',
             ],
-            'menu' => [
-                'categories' => $mappedCategories,
-                'products'   => $mappedProducts
-            ],
-            'active_session' => $sessionData, // This contains the Order list
+            'menu' => $menuPayload,
+            'active_session' => $sessionData,
         ]);
     }
 
@@ -277,6 +276,8 @@ class PortalController extends Controller
             ]);
 
             $table->update(['status' => 'free']);
+
+            event(new TableSessionClosed($session));
         });
 
         return response()->json(['message' => 'Session closed successfully.']);

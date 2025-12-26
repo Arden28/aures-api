@@ -229,7 +229,7 @@ class OrderController extends Controller
      |                       ORDER STATUS UPDATE (State Machine)
      ========================================================================= */
 
-     /**
+    /**
      * Update the status of an existing order.
      * Handles transitions (e.g. pending -> preparing), waiter assignment,
      * and automatic session status updates.
@@ -243,14 +243,24 @@ class OrderController extends Controller
         $currentStatus = $order->status;
 
         // 2. Validation: Check if this state change is allowed
-        // (e.g. prevent moving from 'served' back to 'pending' if strict mode is on)
         if (! $this->canTransitionOrder($currentStatus, $newStatus)) {
             return response()->json([
                 'message' => "Invalid transition: cannot move order from '{$currentStatus->value}' to '{$newStatus->value}'.",
             ], 422);
         }
 
-        // 3. Update Logic (Wrapped in Transaction for data integrity)
+        // 3. Validation: Check for Waiter Conflict (Race Condition Protection)
+        // If a waiter_id is being sent, ensures it hasn't been snagged by someone else already.
+        if ($request->filled('waiter_id')) {
+            if ($order->waiter_id !== null && $order->waiter_id != $request->waiter_id) {
+                return response()->json([
+                    'message' => 'This order has already been claimed by another waiter.',
+                    'claimed_by' => $order->waiter?->name // Optional: helpful for UI
+                ], 409); // 409 Conflict
+            }
+        }
+
+        // 4. Update Logic (Wrapped in Transaction for data integrity)
         DB::transaction(function () use ($order, $newStatus, $request, $currentStatus) {
 
             // A. Update Status
@@ -265,13 +275,12 @@ class OrderController extends Controller
             }
 
             // C. Handle Waiter Assignment (Claiming)
-            // Only update if a waiter_id is explicitly provided in the request.
             if ($request->filled('waiter_id')) {
+                // We already validated conflicts above, so we can safely assign.
                 $order->waiter_id = $request->waiter_id;
 
                 // D. Update Session Status
-                // If a waiter claims an order, the table session becomes 'active' (seated/served)
-                // instead of just 'waiting-confirmation'.
+                // If a waiter claims an order, the table session becomes 'active'
                 $session = $this->resolveTableSession($request, $order);
 
                 if ($session && $session->status === 'waiting-confirmation') {
@@ -291,7 +300,7 @@ class OrderController extends Controller
                 'order_id'   => $order->id,
                 'old_status' => $currentStatus->value,
                 'new_status' => $order->status->value,
-                'waiter'     => $order->waiter?->name, // Helpful to return who claimed it
+                'waiter'     => $order->waiter?->name,
             ],
         ]);
     }

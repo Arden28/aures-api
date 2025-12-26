@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
+use App\Events\TableSessionClosed;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Transaction\StoreTransactionRequest;
 use App\Http\Resources\TransactionResource;
@@ -177,6 +178,9 @@ class TransactionController extends Controller
                     // Mark table as dirty so waiters know to clean it before seating new people
                     $session->table()->update(['status' => 'free']);
                 }
+
+
+                event(new TableSessionClosed($session));
             }
 
             return response()->json([
