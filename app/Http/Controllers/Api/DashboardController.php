@@ -124,6 +124,8 @@ class DashboardController extends Controller
             $staffPerformance = $this->buildStaffPerformance($restaurant, $orders);
         }
 
+        $efficiency = $this->buildOperationalEfficiency($orders);
+
         // ---- Response -----------------------------------------------------
         return response()->json([
             'status' => 'success',
@@ -149,6 +151,60 @@ class DashboardController extends Controller
                 'staff_performance'  => $staffPerformance,
             ],
         ]);
+    }
+
+    /**
+     * Calculate average duration (in minutes) between key status checkpoints.
+     */
+    protected function buildOperationalEfficiency(Collection $orders): array
+    {
+        $times = [
+            'wait_time' => [],   // Pending -> Preparing (Reaction time)
+            'prep_time' => [],   // Preparing -> Ready (Kitchen speed)
+            'serve_time' => [],  // Ready -> Served (Waiter pickup speed)
+        ];
+
+        foreach ($orders as $order) {
+            $history = $order->statusHistory ?? [];
+            if (empty($history)) continue;
+
+            // Helper to find timestamp of specific status
+            $findTime = function ($status) use ($history) {
+                foreach ($history as $entry) {
+                    if (($entry['status'] ?? '') === $status) return Carbon::parse($entry['at']);
+                }
+                return null;
+            };
+
+            $pending   = $order->opened_at; // Or $findTime(OrderStatus::PENDING->value)
+            $preparing = $findTime(OrderStatus::PREPARING->value);
+            $ready     = $findTime(OrderStatus::READY->value);
+            $served    = $findTime(OrderStatus::SERVED->value);
+
+            // 1. Reaction Time (Client sits -> Kitchen starts)
+            if ($pending && $preparing) {
+                $times['wait_time'][] = $pending->diffInMinutes($preparing);
+            }
+
+            // 2. Kitchen Time (Start cooking -> Food ready)
+            if ($preparing && $ready) {
+                $times['prep_time'][] = $preparing->diffInMinutes($ready);
+            }
+
+            // 3. Service Time (Food ready -> On table)
+            if ($ready && $served) {
+                $times['serve_time'][] = $ready->diffInMinutes($served);
+            }
+        }
+
+        // Calculate Averages
+        $avg = fn($arr) => count($arr) > 0 ? round(array_sum($arr) / count($arr), 1) : 0;
+
+        return [
+            'avg_wait_mins'  => $avg($times['wait_time']),
+            'avg_prep_mins'  => $avg($times['prep_time']),
+            'avg_serve_mins' => $avg($times['serve_time']),
+        ];
     }
 
     /** Normalize and whitelist timeframe. */
